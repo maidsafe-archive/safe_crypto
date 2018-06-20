@@ -16,10 +16,16 @@ extern crate quick_error;
 #[macro_use]
 extern crate unwrap;
 
-use maidsafe_utilities::serialisation::{self, SerialisationError};
+use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 use rust_sodium::crypto::{box_, sealedbox, sign};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PackedNonce {
+    nonce: [u8; box_::NONCEBYTES],
+    ciphertext: Vec<u8>,
+}
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
 pub struct PublicId {
@@ -54,7 +60,7 @@ impl PublicId {
     where
         T: Serialize,
     {
-        let bytes = serialisation::serialise(plaintext).map_err(EncryptError::Serialization)?;
+        let bytes = serialise(plaintext).map_err(EncryptError::Serialisation)?;
         Ok(self.encrypt_anonymous_bytes(&bytes))
     }
 
@@ -95,8 +101,11 @@ impl SecretId {
     {
         let bytes = self
             .decrypt_anonymous_bytes(cyphertext)
-            .map_err(|DecryptBytesError::DecryptVerify| DecryptError::DecryptVerify)?;
-        serialisation::deserialise(&bytes).map_err(DecryptError::Deserialization)
+            .map_err(|e| match e {
+                DecryptBytesError::DecryptVerify => DecryptError::DecryptVerify,
+                DecryptBytesError::Deserialisation(cause) => DecryptError::Deserialisation(cause),
+            })?;
+        deserialise(&bytes).map_err(DecryptError::Deserialisation)
     }
 
     pub fn decrypt_anonymous_bytes(&self, cyphertext: &[u8]) -> Result<Vec<u8>, DecryptBytesError> {
@@ -117,22 +126,27 @@ impl SecretId {
 }
 
 impl SharedSecretKey {
-    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Vec<u8> {
-        let nonce = unwrap!(box_::Nonce::from_slice(&[0u8; 24][..]));
-        box_::seal_precomputed(plaintext, &nonce, &self.precomputed)
+    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptError> {
+        let nonce = box_::gen_nonce();
+        let ciphertext = box_::seal_precomputed(plaintext, &nonce, &self.precomputed);
+        Ok(serialise(&PackedNonce {
+            nonce: nonce.0,
+            ciphertext,
+        }).map_err(EncryptError::Serialisation)?)
     }
 
     pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptError>
     where
         T: Serialize,
     {
-        let bytes = serialisation::serialise(plaintext).map_err(EncryptError::Serialization)?;
-        Ok(self.encrypt_bytes(&bytes))
+        let bytes = serialise(plaintext).map_err(EncryptError::Serialisation)?;
+        self.encrypt_bytes(&bytes)
     }
 
-    pub fn decrypt_bytes(&self, cyphertext: &[u8]) -> Result<Vec<u8>, DecryptBytesError> {
-        let nonce = unwrap!(box_::Nonce::from_slice(&[0u8; 24][..]));
-        box_::open_precomputed(cyphertext, &nonce, &self.precomputed)
+    pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, DecryptBytesError> {
+        let PackedNonce { nonce, ciphertext } =
+            deserialise(encoded).map_err(DecryptBytesError::Deserialisation)?;
+        box_::open_precomputed(&ciphertext, &box_::Nonce(nonce), &self.precomputed)
             .map_err(|()| DecryptBytesError::DecryptVerify)
     }
 
@@ -140,17 +154,18 @@ impl SharedSecretKey {
     where
         T: Serialize + DeserializeOwned,
     {
-        let bytes = self
-            .decrypt_bytes(cyphertext)
-            .map_err(|DecryptBytesError::DecryptVerify| DecryptError::DecryptVerify)?;
-        serialisation::deserialise(&bytes).map_err(DecryptError::Deserialization)
+        let bytes = self.decrypt_bytes(cyphertext).map_err(|e| match e {
+            DecryptBytesError::DecryptVerify => DecryptError::DecryptVerify,
+            DecryptBytesError::Deserialisation(cause) => DecryptError::Deserialisation(cause),
+        })?;
+        deserialise(&bytes).map_err(DecryptError::Deserialisation)
     }
 }
 
 quick_error! {
     #[derive(Debug)]
     pub enum EncryptError {
-        Serialization(e: SerialisationError) {
+        Serialisation(e: SerialisationError) {
             description("error serializing message")
             display("error serializing message: {}", e)
             cause(e)
@@ -164,7 +179,7 @@ quick_error! {
         DecryptVerify {
             description("error decrypting/verifying message")
         }
-        Deserialization(e: SerialisationError) {
+        Deserialisation(e: SerialisationError) {
             description("error deserializing decrypted message")
             display("error deserializing decrypted message: {}", e)
             cause(e)
@@ -173,10 +188,15 @@ quick_error! {
 }
 
 quick_error! {
-    #[derive(Clone, Debug)]
+    #[derive(Debug)]
     pub enum DecryptBytesError {
         DecryptVerify {
             description("error decrypting/verifying message")
+        }
+        Deserialisation(e: SerialisationError) {
+            description("error deserializing decrypted message")
+            display("error deserializing decrypted message: {}", e)
+            cause(e)
         }
     }
 }
