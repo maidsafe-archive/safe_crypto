@@ -76,7 +76,7 @@ pub struct SharedSecretKey {
 }
 
 #[derive(Serialize, Deserialize)]
-struct PackedNonce {
+struct CipherText {
     nonce: box_::Nonce,
     ciphertext: Vec<u8>,
 }
@@ -156,7 +156,7 @@ impl SharedSecretKey {
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let nonce = box_::gen_nonce();
         let ciphertext = box_::seal_precomputed(plaintext, &nonce, &self.precomputed);
-        Ok(serialise(&PackedNonce { nonce, ciphertext })?)
+        Ok(serialise(&CipherText { nonce, ciphertext })?)
     }
 
     pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
@@ -167,7 +167,7 @@ impl SharedSecretKey {
     }
 
     pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, EncryptionError> {
-        let PackedNonce { nonce, ciphertext } = deserialise(encoded)?;
+        let CipherText { nonce, ciphertext } = deserialise(encoded)?;
         Ok(box_::open_precomputed(
             &ciphertext,
             &nonce,
