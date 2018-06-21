@@ -4,8 +4,12 @@ environment:
   matrix:
     - RUST_TOOLCHAIN: 1.26.2
 
+branches:
+  only:
+    - master
+
 cache:
-  - '%USERPROFILE%\.p2p'
+  - '%USERPROFILE%\.cargo'
   - '%APPVEYOR_BUILD_FOLDER%\target'
 
 clone_depth: 1
@@ -24,8 +28,7 @@ configuration:
   - Release
 
 build_script:
-  - cargo check --verbose --release --lib --tests
+  - cargo check --verbose --release --all-targets
 
 test_script:
   - cargo test --verbose --release
-  

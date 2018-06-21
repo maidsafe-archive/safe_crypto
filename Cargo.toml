@@ -1,14 +1,20 @@
 [package]
-name = "safe_crypto"
-version = "0.1.0"
 authors = ["MaidSafe Developers <dev@maidsafe.net>"]
+description = "A convenience library providing abstractions for cryptographic functions."
+homepage = "https://maidsafe.net"
 license = "MIT OR BSD-3-Clause"
+name = "safe_crypto"
+readme = "README.md"
+repository = "https://github.com/maidsafe/safe_crypto"
+version = "0.1.0"
 
 [dependencies]
-maidsafe_utilities = "~0.14.0"
+maidsafe_utilities = "~0.15.0"
+quick-error = "~1.2.2"
 rust_sodium = "~0.9.0"
 serde = "~1.0.66"
 serde_derive = "~1.0.66"
-quick-error = "~1.2.2"
 unwrap = "~1.1.0"
 
+[dev-dependencies]
+rand = "~0.5.2"
