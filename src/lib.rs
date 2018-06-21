@@ -41,6 +41,9 @@ extern crate serde;
 extern crate serde_derive;
 #[macro_use]
 extern crate quick_error;
+#[cfg(test)]
+#[macro_use]
+extern crate unwrap;
 
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 use rust_sodium::crypto::{box_, sealedbox, sign};
@@ -201,19 +204,21 @@ quick_error! {
 
 #[cfg(test)]
 mod tests {
+    extern crate rand;
+    use self::rand::{distributions::Alphanumeric, distributions::Standard, OsRng, Rng};
     use super::*;
 
     #[test]
     fn anonymous_bytes_cipher() {
-        let data = b"Humpty Dumpty sat on a wall";
+        let data = generate_random_string(50);
         let sk = SecretId::new();
         let sk2 = SecretId::new();
         let pk = sk.public_id();
 
-        let ciphertext = pk.encrypt_anonymous_bytes(data);
-        assert!(&ciphertext != data);
+        let ciphertext = pk.encrypt_anonymous_bytes(&data);
+        assert_ne!(&ciphertext, &data);
 
-        let error_res: Result<_, _> = sk.decrypt_anonymous_bytes(data);
+        let error_res: Result<_, _> = sk.decrypt_anonymous_bytes(&data);
         match error_res {
             Err(_e) => (),
             Ok(_) => {
@@ -229,33 +234,34 @@ mod tests {
             }
         }
 
-        let plaintext: Vec<u8> = sk
-            .decrypt_anonymous_bytes(&ciphertext)
-            .expect("couldn't decrypt ciphertext");
-        assert!(&plaintext == data);
+        let plaintext: Vec<u8> = unwrap!(
+            sk.decrypt_anonymous_bytes(&ciphertext),
+            "couldn't decrypt ciphertext"
+        );
+        assert_eq!(&plaintext, &data);
     }
 
     #[test]
     fn anonymous_cipher() {
-        let data: Vec<u64> = vec![4, 5, 6];
+        let mut os_rng = unwrap!(OsRng::new());
+        let data: Vec<u64> = os_rng.sample_iter(&Standard).take(32).collect();
 
         let sk = SecretId::new();
         let pk = sk.public_id();
 
-        let ciphertext = pk
-            .encrypt_anonymous(&data)
-            .expect("couldn't encrypt base data");
+        let ciphertext = unwrap!(pk.encrypt_anonymous(&data), "couldn't encrypt base data");
         assert!(!ciphertext.is_empty());
 
-        let plaintext: Vec<u64> = sk
-            .decrypt_anonymous(&ciphertext)
-            .expect("couldn't decrypt ciphertext");
-        assert!(plaintext == data);
+        let plaintext: Vec<u64> = unwrap!(
+            sk.decrypt_anonymous(&ciphertext),
+            "couldn't decrypt ciphertext"
+        );
+        assert_eq!(plaintext, data);
     }
 
     #[test]
     fn authenticated_cipher() {
-        let data = b"Humpty Dumpty had a great fall.";
+        let data = generate_random_string(50);
 
         let sk1 = SecretId::new();
         let pk1 = sk1.public_id();
@@ -266,15 +272,14 @@ mod tests {
         let shared_key1 = sk1.shared_key(&pk2);
         let shared_key2 = sk2.shared_key(&pk1);
 
-        let ciphertext = shared_key1
-            .encrypt_bytes(data)
-            .expect("couldn't encrypt data");
-        assert!(&ciphertext != data);
+        let ciphertext = unwrap!(shared_key1.encrypt_bytes(&data), "couldn't encrypt data");
+        assert_ne!(&ciphertext, &data);
 
-        let plaintext = shared_key2
-            .decrypt_bytes(&ciphertext)
-            .expect("couldn't decrypt data");
-        assert!(&plaintext == data);
+        let plaintext = unwrap!(
+            shared_key2.decrypt_bytes(&ciphertext),
+            "couldn't decrypt data"
+        );
+        assert_eq!(&plaintext, &data);
 
         // Trying with wrong data
         let error_res: Result<_, _> = shared_key2.decrypt_bytes(&plaintext);
@@ -300,8 +305,8 @@ mod tests {
 
     #[test]
     fn signing() {
-        let data1 = b"All the king's horses and all the king's men";
-        let data2 = b"Couldn't put Humpty together again";
+        let data1 = generate_random_string(50);
+        let data2 = generate_random_string(50);
 
         let sk1 = SecretId::new();
         let pk1 = sk1.public_id();
@@ -309,17 +314,26 @@ mod tests {
         let sk2 = SecretId::new();
         let pk2 = sk2.public_id();
 
-        let sig1 = sk1.sign_detached(data1);
-        let sig2 = sk2.sign_detached(data2);
+        let sig1 = sk1.sign_detached(&data1);
+        let sig2 = sk2.sign_detached(&data2);
 
-        assert_eq!(pk1.verify_detached(&sig1, data1), true);
-        assert_eq!(pk1.verify_detached(&sig1, data2), false);
-        assert_eq!(pk1.verify_detached(&sig2, data1), false);
-        assert_eq!(pk1.verify_detached(&sig2, data2), false);
+        assert!(pk1.verify_detached(&sig1, &data1));
+        assert!(!pk1.verify_detached(&sig1, &data2));
+        assert!(!pk1.verify_detached(&sig2, &data1));
+        assert!(!pk1.verify_detached(&sig2, &data2));
 
-        assert_eq!(pk2.verify_detached(&sig1, data1), false);
-        assert_eq!(pk2.verify_detached(&sig1, data2), false);
-        assert_eq!(pk2.verify_detached(&sig2, data1), false);
-        assert_eq!(pk2.verify_detached(&sig2, data2), true);
+        assert!(!pk2.verify_detached(&sig1, &data1));
+        assert!(!pk2.verify_detached(&sig1, &data2));
+        assert!(!pk2.verify_detached(&sig2, &data1));
+        assert!(pk2.verify_detached(&sig2, &data2));
+    }
+
+    pub fn generate_random_string(length: usize) -> Vec<u8> {
+        let mut os_rng = unwrap!(OsRng::new());
+        os_rng
+            .sample_iter(&Alphanumeric)
+            .take(length)
+            .collect::<String>()
+            .into_bytes()
     }
 }
