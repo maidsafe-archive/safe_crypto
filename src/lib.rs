@@ -119,16 +119,16 @@ impl SecretId {
         &self.public
     }
 
-    pub fn decrypt_anonymous<T>(&self, cyphertext: &[u8]) -> Result<T, EncryptionError>
+    pub fn decrypt_anonymous<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
     where
         T: Serialize + DeserializeOwned,
     {
-        Ok(deserialise(&self.decrypt_anonymous_bytes(cyphertext)?)?)
+        Ok(deserialise(&self.decrypt_anonymous_bytes(ciphertext)?)?)
     }
 
-    pub fn decrypt_anonymous_bytes(&self, cyphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    pub fn decrypt_anonymous_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         Ok(sealedbox::open(
-            cyphertext,
+            ciphertext,
             &self.public.encrypt,
             &self.inner.encrypt,
         )?)
@@ -175,11 +175,11 @@ impl SharedSecretKey {
         )?)
     }
 
-    pub fn decrypt<T>(&self, cyphertext: &[u8]) -> Result<T, EncryptionError>
+    pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
     where
         T: Serialize + DeserializeOwned,
     {
-        Ok(deserialise(&self.decrypt_bytes(cyphertext)?)?)
+        Ok(deserialise(&self.decrypt_bytes(ciphertext)?)?)
     }
 }
 
