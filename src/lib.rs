@@ -36,8 +36,15 @@
 #![allow(missing_docs)]
 
 extern crate maidsafe_utilities;
+#[cfg(feature = "use-mock-crypto")]
+extern crate rand;
+#[cfg(not(feature = "use-mock-crypto"))]
 extern crate rust_sodium;
 extern crate serde;
+#[cfg(feature = "use-mock-crypto")]
+extern crate tiny_keccak;
+#[cfg(feature = "use-mock-crypto")]
+extern crate x25519_dalek;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -46,8 +53,15 @@ extern crate quick_error;
 #[macro_use]
 extern crate unwrap;
 
+#[cfg(feature = "use-mock-crypto")]
+mod mock_crypto;
+#[cfg(feature = "use-mock-crypto")]
+use mock_crypto::rust_sodium;
+
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 use rust_sodium::crypto::{box_, sealedbox, sign};
+#[cfg(feature = "use-mock-crypto")]
+pub use rust_sodium::{init as mock_crypto_init, init_with_rng as mock_crypto_init_with_rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -329,7 +343,7 @@ mod tests {
         assert!(pk2.verify_detached(&sig2, &data2));
     }
 
-    pub fn generate_random_string(length: usize) -> Vec<u8> {
+    fn generate_random_string(length: usize) -> Vec<u8> {
         let mut os_rng = unwrap!(OsRng::new());
         os_rng
             .sample_iter(&Alphanumeric)
