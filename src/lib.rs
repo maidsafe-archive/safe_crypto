@@ -82,7 +82,7 @@ struct PackedNonce {
 }
 
 impl PublicId {
-    pub fn encrypt_anonymous<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptError>
+    pub fn encrypt_anonymous<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
     where
         T: Serialize,
     {
@@ -119,14 +119,14 @@ impl SecretId {
         &self.public
     }
 
-    pub fn decrypt_anonymous<T>(&self, cyphertext: &[u8]) -> Result<T, DecryptError>
+    pub fn decrypt_anonymous<T>(&self, cyphertext: &[u8]) -> Result<T, EncryptionError>
     where
         T: Serialize + DeserializeOwned,
     {
         Ok(deserialise(&self.decrypt_anonymous_bytes(cyphertext)?)?)
     }
 
-    pub fn decrypt_anonymous_bytes(&self, cyphertext: &[u8]) -> Result<Vec<u8>, DecryptBytesError> {
+    pub fn decrypt_anonymous_bytes(&self, cyphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         Ok(sealedbox::open(
             cyphertext,
             &self.public.encrypt,
@@ -153,20 +153,20 @@ impl Default for SecretId {
 }
 
 impl SharedSecretKey {
-    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptError> {
+    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let nonce = box_::gen_nonce();
         let ciphertext = box_::seal_precomputed(plaintext, &nonce, &self.precomputed);
         Ok(serialise(&PackedNonce { nonce, ciphertext })?)
     }
 
-    pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptError>
+    pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
     where
         T: Serialize,
     {
         self.encrypt_bytes(&serialise(plaintext)?)
     }
 
-    pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, DecryptBytesError> {
+    pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let PackedNonce { nonce, ciphertext } = deserialise(encoded)?;
         Ok(box_::open_precomputed(
             &ciphertext,
@@ -175,7 +175,7 @@ impl SharedSecretKey {
         )?)
     }
 
-    pub fn decrypt<T>(&self, cyphertext: &[u8]) -> Result<T, DecryptError>
+    pub fn decrypt<T>(&self, cyphertext: &[u8]) -> Result<T, EncryptionError>
     where
         T: Serialize + DeserializeOwned,
     {
@@ -185,52 +185,16 @@ impl SharedSecretKey {
 
 quick_error! {
     #[derive(Debug)]
-    pub enum EncryptError {
+    pub enum EncryptionError {
         Serialisation(e: SerialisationError) {
-            description("error serialising message")
-            display("error serialising message: {}", e)
+            description("error serialising or deserialising message")
+            display("error serialising or deserialising message: {}", e)
             cause(e)
             from()
         }
-    }
-}
-
-quick_error! {
-    #[derive(Debug)]
-    pub enum DecryptError {
-        DecryptVerify {
-            description("error decrypting/verifying message")
-        }
-        Deserialisation(e: SerialisationError) {
-            description("error deserialising decrypted message")
-            display("error deserialising decrypted message: {}", e)
-            cause(e)
-            from()
-        }
-    }
-}
-
-quick_error! {
-    #[derive(Debug)]
-    pub enum DecryptBytesError {
         DecryptVerify(_e: ()) {
             description("error decrypting/verifying message")
             from()
-        }
-        Deserialisation(e: SerialisationError) {
-            description("error deserialising decrypted message")
-            display("error deserialising decrypted message: {}", e)
-            cause(e)
-            from()
-        }
-    }
-}
-
-impl From<DecryptBytesError> for DecryptError {
-    fn from(error: DecryptBytesError) -> Self {
-        match error {
-            DecryptBytesError::DecryptVerify(_) => DecryptError::DecryptVerify,
-            DecryptBytesError::Deserialisation(e) => DecryptError::Deserialisation(e),
         }
     }
 }
