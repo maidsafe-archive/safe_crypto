@@ -203,7 +203,7 @@ impl SecretId {
     }
 
     /// Computes a shared secret from our secret key and the recipient's public key.
-    pub fn shared_key(&self, their_pk: &PublicId) -> SharedSecretKey {
+    pub fn shared_secret(&self, their_pk: &PublicId) -> SharedSecretKey {
         let precomputed = Arc::new(box_::precompute(&their_pk.encrypt, &self.inner.encrypt));
         SharedSecretKey { precomputed }
     }
@@ -369,20 +369,20 @@ mod tests {
         let sk2 = SecretId::new();
         let pk2 = sk2.public_id();
 
-        let shared_key1 = sk1.shared_key(&pk2);
-        let shared_key2 = sk2.shared_key(&pk1);
+        let shared_sk1 = sk1.shared_secret(&pk2);
+        let shared_sk2 = sk2.shared_secret(&pk1);
 
-        let ciphertext = unwrap!(shared_key1.encrypt_bytes(&data), "couldn't encrypt data");
+        let ciphertext = unwrap!(shared_sk1.encrypt_bytes(&data), "couldn't encrypt data");
         assert_ne!(&ciphertext, &data);
 
         let plaintext = unwrap!(
-            shared_key2.decrypt_bytes(&ciphertext),
+            shared_sk2.decrypt_bytes(&ciphertext),
             "couldn't decrypt data"
         );
         assert_eq!(&plaintext, &data);
 
         // Trying with wrong data
-        let error_res: Result<_, _> = shared_key2.decrypt_bytes(&plaintext);
+        let error_res: Result<_, _> = shared_sk2.decrypt_bytes(&plaintext);
         match error_res {
             Err(_e) => (),
             Ok(_) => {
@@ -392,9 +392,9 @@ mod tests {
 
         // Trying with a wrong key
         let sk3 = SecretId::new();
-        let shared_key3 = sk3.shared_key(&pk2);
+        let shared_sk3 = sk3.shared_secret(&pk2);
 
-        let error_res: Result<_, _> = shared_key3.decrypt_bytes(&ciphertext);
+        let error_res: Result<_, _> = shared_sk3.decrypt_bytes(&ciphertext);
         match error_res {
             Err(_e) => (),
             Ok(_) => {
