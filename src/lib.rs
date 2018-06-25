@@ -32,8 +32,6 @@
     box_pointers, missing_copy_implementations, missing_debug_implementations,
     variant_size_differences
 )]
-// TODO - remove
-#![allow(missing_docs)]
 
 extern crate maidsafe_utilities;
 #[cfg(feature = "use-mock-crypto")]
@@ -63,12 +61,16 @@ pub use rust_sodium::{init as mock_crypto_init, init_with_rng as mock_crypto_ini
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
+/// Represents a public identity, consisting of a public signature key and a public
+/// encryption key.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
 pub struct PublicId {
     sign: sign::PublicKey,
     encrypt: box_::PublicKey,
 }
 
+/// Secret counterpart of the public identity, consisting of a secret signing key and
+/// a secret encryption key.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SecretId {
     inner: Arc<SecretIdInner>,
@@ -81,11 +83,16 @@ struct SecretIdInner {
     encrypt: box_::SecretKey,
 }
 
+/// Detached signature.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
 pub struct Signature {
     signature: sign::Signature,
 }
 
+/// Precomputed shared secret key.
+/// Can be created from a pair of our secret key and the recipient's public key.
+/// As a result, we'll get the same key as the recipient with their secret key and
+/// our public key.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedSecretKey {
     precomputed: Arc<box_::PrecomputedKey>,
@@ -98,6 +105,15 @@ struct CipherText {
 }
 
 impl PublicId {
+    /// Encrypts serialisable `plaintext` using anonymous encryption.
+    ///
+    /// Anonymous encryption will use an ephemeral public key, so the recipient won't
+    /// be able to tell who sent the ciphertext.
+    /// If you wish to encrypt bytestring plaintext, use `encrypt_anonymous_bytes`.
+    /// To use authenticated encryption, use `SharedSecretKey`.
+    ///
+    /// Returns ciphertext in case of success.
+    /// Can return an `EncryptionError` in case of a serialisation error.
     pub fn encrypt_anonymous<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
     where
         T: Serialize,
@@ -105,16 +121,27 @@ impl PublicId {
         Ok(self.encrypt_anonymous_bytes(&serialise(plaintext)?))
     }
 
+    /// Encrypts bytestring `plaintext` using anonymous encryption.
+    ///
+    /// Anonymous encryption will use an ephemeral public key, so the recipient won't
+    /// be able to tell who sent the ciphertext.
+    /// To use authenticated encryption, use `SharedSecretKey`.
+    ///
+    /// Returns ciphertext in case of success.
     pub fn encrypt_anonymous_bytes(&self, plaintext: &[u8]) -> Vec<u8> {
         sealedbox::seal(plaintext, &self.encrypt)
     }
 
+    /// Verifies the detached `signature`.
+    ///
+    /// Returns `true` if the signature is valid the `data` is verified.
     pub fn verify_detached(&self, signature: &Signature, data: &[u8]) -> bool {
         sign::verify_detached(&signature.signature, data, &self.sign)
     }
 }
 
 impl SecretId {
+    /// Generates a pair of secret and public key sets.
     pub fn new() -> SecretId {
         let (sign_pk, sign_sk) = sign::gen_keypair();
         let (encrypt_pk, encrypt_sk) = box_::gen_keypair();
@@ -131,10 +158,19 @@ impl SecretId {
         }
     }
 
+    /// Returns the public part of the secret key set.
     pub fn public_id(&self) -> &PublicId {
         &self.public
     }
 
+    /// Decrypts serialised `ciphertext` encrypted using anonymous encryption.
+    ///
+    /// With anonymous encryption we won't be able to verify the sender and
+    /// tell who sent the ciphertext.
+    ///
+    /// Returns deserialised type `T` in case of success.
+    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext is
+    /// not valid, or if it can not be decrypted.
     pub fn decrypt_anonymous<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
     where
         T: Serialize + DeserializeOwned,
@@ -142,6 +178,13 @@ impl SecretId {
         Ok(deserialise(&self.decrypt_anonymous_bytes(ciphertext)?)?)
     }
 
+    /// Decrypts bytestring `ciphertext` encrypted using anonymous encryption.
+    ///
+    /// With anonymous encryption we won't be able to verify the sender and
+    /// tell who sent the ciphertext.
+    ///
+    /// Returns plaintext in case of success.
+    /// Can return `EncryptionError` if the ciphertext is not valid or if it can not be decrypted.
     pub fn decrypt_anonymous_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         Ok(sealedbox::open(
             ciphertext,
@@ -150,12 +193,16 @@ impl SecretId {
         )?)
     }
 
+    /// Produces the detached signature from the `data`.
+    ///
+    /// Afterwards the returned `Signature` can be used to verify the authenticity of `data`.
     pub fn sign_detached(&self, data: &[u8]) -> Signature {
         Signature {
             signature: sign::sign_detached(data, &self.inner.sign),
         }
     }
 
+    /// Computes a shared secret from our secret key and the recipient's public key.
     pub fn shared_key(&self, their_pk: &PublicId) -> SharedSecretKey {
         let precomputed = Arc::new(box_::precompute(&their_pk.encrypt, &self.inner.encrypt));
         SharedSecretKey { precomputed }
@@ -169,12 +216,31 @@ impl Default for SecretId {
 }
 
 impl SharedSecretKey {
+    /// Encrypts bytestring `plaintext` using authenticated encryption.
+    ///
+    /// With authenticated encryption the recipient will be able to verify the authenticity
+    /// of the sender using a sender's public key.
+    /// If you want to use anonymous encryption, use the functions provided by `PublicId`
+    /// and `SecretId`.
+    ///
+    /// Returns ciphertext in case of success.
+    /// Can return an `EncryptionError` in case of a serialisation error.
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let nonce = box_::gen_nonce();
         let ciphertext = box_::seal_precomputed(plaintext, &nonce, &self.precomputed);
         Ok(serialise(&CipherText { nonce, ciphertext })?)
     }
 
+    /// Encrypts serialisable `plaintext` using authenticated encryption.
+    ///
+    /// With authenticated encryption the recipient will be able to verify the authenticity
+    /// of the sender using a sender's public key.
+    /// If you wish to encrypt bytestring plaintext, use `encrypt_bytes`.
+    /// If you want to use anonymous encryption, use the functions provided by `PublicId`
+    /// and `SecretId`.
+    ///
+    /// Returns ciphertext in case of success.
+    /// Can return an `EncryptionError` in case of a serialisation error.
     pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
     where
         T: Serialize,
@@ -182,6 +248,14 @@ impl SharedSecretKey {
         self.encrypt_bytes(&serialise(plaintext)?)
     }
 
+    /// Decrypts bytestring `encoded` encrypted using authenticated encryption.
+    ///
+    /// With authenticated encryption we will be able to verify the authenticity
+    /// of the sender using a sender's public key.
+    ///
+    /// Returns plaintext in case of success.
+    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// is not valid, or if it can not be decrypted.
     pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let CipherText { nonce, ciphertext } = deserialise(encoded)?;
         Ok(box_::open_precomputed(
@@ -191,6 +265,14 @@ impl SharedSecretKey {
         )?)
     }
 
+    /// Decrypts serialised `ciphertext` encrypted using authenticated encryption.
+    ///
+    /// With authenticated encryption we will be able to verify the authenticity
+    /// of the sender using a sender's public key.
+    ///
+    /// Returns deserialised type `T` in case of success.
+    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// is not valid, or if it can not be decrypted.
     pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
     where
         T: Serialize + DeserializeOwned,
@@ -200,14 +282,19 @@ impl SharedSecretKey {
 }
 
 quick_error! {
+    /// This error is returned if encryption or decryption fail.
+    /// The encryption failure is rare and mostly connected to serialisation failures.
+    /// Decryption can fail because of invalid keys, invalid data, or deserialisation failures.
     #[derive(Debug)]
     pub enum EncryptionError {
+        /// Occurs when serialisation or deserialisation fails.
         Serialisation(e: SerialisationError) {
             description("error serialising or deserialising message")
             display("error serialising or deserialising message: {}", e)
             cause(e)
             from()
         }
+        /// Occurs when we can't decrypt a message or verify the signature.
         DecryptVerify(_e: ()) {
             description("error decrypting/verifying message")
             from()
