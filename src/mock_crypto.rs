@@ -108,7 +108,6 @@ pub mod rust_sodium {
         pub mod box_ {
             use super::super::with_rng;
             use rand::Rng;
-            use x25519_dalek::{diffie_hellman, generate_public};
 
             /// Number of bytes in a `PublicKey`.
             pub const PUBLICKEYBYTES: usize = 32;
@@ -137,10 +136,7 @@ pub mod rust_sodium {
             pub fn gen_keypair() -> (PublicKey, SecretKey) {
                 with_rng(|rng| {
                     let value = rng.gen();
-                    (
-                        PublicKey(generate_public(&value).to_bytes()),
-                        SecretKey(value),
-                    )
+                    (PublicKey(value), SecretKey(value))
                 })
             }
 
@@ -150,9 +146,8 @@ pub mod rust_sodium {
             }
 
             /// Generate mock shared key
-            pub fn precompute(pk: &PublicKey, sk: &SecretKey) -> PrecomputedKey {
-                // PrecomputedKey(pk.0)
-                PrecomputedKey(diffie_hellman(&sk.0, &pk.0))
+            pub fn precompute(pk: &PublicKey, _sk: &SecretKey) -> PrecomputedKey {
+                PrecomputedKey(pk.0)
             }
 
             /// Perform mock encryption of the given message using the shared key
@@ -176,10 +171,6 @@ pub mod rust_sodium {
                 let s = sk.0.len();
 
                 if c[0..n] != nonce.0 {
-                    return Err(());
-                }
-
-                if c[n..n + s] != sk.0 {
                     return Err(());
                 }
 

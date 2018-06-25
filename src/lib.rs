@@ -43,8 +43,6 @@ extern crate rust_sodium;
 extern crate serde;
 #[cfg(feature = "use-mock-crypto")]
 extern crate tiny_keccak;
-#[cfg(feature = "use-mock-crypto")]
-extern crate x25519_dalek;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -274,6 +272,9 @@ mod tests {
         assert_eq!(plaintext, data);
     }
 
+    // We don't run this test with mock-crypto because it depends on enabling real crypto features
+    // to use precomputed keys.
+    #[cfg(not(feature = "use-mock-crypto"))]
     #[test]
     fn authenticated_cipher() {
         let data = generate_random_string(50);
