@@ -272,9 +272,6 @@ mod tests {
         assert_eq!(plaintext, data);
     }
 
-    // We don't run this test with mock-crypto because it depends on enabling real crypto features
-    // to use precomputed keys.
-    #[cfg(not(feature = "use-mock-crypto"))]
     #[test]
     fn authenticated_cipher() {
         let data = generate_random_string(50);

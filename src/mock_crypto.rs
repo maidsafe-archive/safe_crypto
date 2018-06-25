@@ -146,8 +146,12 @@ pub mod rust_sodium {
             }
 
             /// Generate mock shared key
-            pub fn precompute(pk: &PublicKey, _sk: &SecretKey) -> PrecomputedKey {
-                PrecomputedKey(pk.0)
+            pub fn precompute(pk: &PublicKey, sk: &SecretKey) -> PrecomputedKey {
+                let mut shared_secret: [u8; SECRETKEYBYTES] = [0; SECRETKEYBYTES];
+                for i in 0..pk.0.len() {
+                    shared_secret[i] = pk.0[i] ^ sk.0[i];
+                }
+                PrecomputedKey(shared_secret)
             }
 
             /// Perform mock encryption of the given message using the shared key
@@ -171,6 +175,10 @@ pub mod rust_sodium {
                 let s = sk.0.len();
 
                 if c[0..n] != nonce.0 {
+                    return Err(());
+                }
+
+                if c[n..n + s] != sk.0 {
                     return Err(());
                 }
 
