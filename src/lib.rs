@@ -53,7 +53,7 @@ mod mock_crypto;
 use mock_crypto::rust_sodium;
 
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
-use rust_sodium::crypto::{box_, sealedbox, sign};
+use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
 #[cfg(feature = "use-mock-crypto")]
 pub use rust_sodium::{init as mock_crypto_init, init_with_rng as mock_crypto_init_with_rng};
 use serde::{de::DeserializeOwned, Serialize};
@@ -81,6 +81,12 @@ struct SecretIdInner {
     encrypt: box_::SecretKey,
 }
 
+/// Secret key for authenticated symmetric encryption.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SymmetricKey {
+    encrypt: Arc<secretbox::Key>,
+}
+
 /// Detached signature.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
 pub struct Signature {
@@ -98,7 +104,7 @@ pub struct SharedSecretKey {
 
 #[derive(Serialize, Deserialize)]
 struct CipherText {
-    nonce: box_::Nonce,
+    nonce: [u8; box_::NONCEBYTES],
     ciphertext: Vec<u8>,
 }
 
@@ -226,7 +232,10 @@ impl SharedSecretKey {
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
         let nonce = box_::gen_nonce();
         let ciphertext = box_::seal_precomputed(plaintext, &nonce, &self.precomputed);
-        Ok(serialise(&CipherText { nonce, ciphertext })?)
+        Ok(serialise(&CipherText {
+            nonce: nonce.0,
+            ciphertext,
+        })?)
     }
 
     /// Encrypts serialisable `plaintext` using authenticated encryption.
@@ -258,7 +267,7 @@ impl SharedSecretKey {
         let CipherText { nonce, ciphertext } = deserialise(encoded)?;
         Ok(box_::open_precomputed(
             &ciphertext,
-            &nonce,
+            &box_::Nonce(nonce),
             &self.precomputed,
         )?)
     }
@@ -276,6 +285,76 @@ impl SharedSecretKey {
         T: Serialize + DeserializeOwned,
     {
         Ok(deserialise(&self.decrypt_bytes(ciphertext)?)?)
+    }
+}
+
+impl SymmetricKey {
+    /// Generates a new symmetric key.
+    pub fn new() -> Self {
+        let sk = secretbox::gen_key();
+        Self {
+            encrypt: Arc::new(sk),
+        }
+    }
+
+    /// Encrypts serialisable `plaintext` using authenticated symmetric encryption.
+    ///
+    /// With authenticated encryption the recipient will be able to confirm that the message
+    /// is untampered with.
+    /// If you wish to encrypt bytestring plaintext, use `encrypt_bytes`.
+    ///
+    /// Returns ciphertext in case of success.
+    /// Can return an `EncryptionError` in case of a serialisation error.
+    pub fn encrypt<T: Serialize>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError> {
+        self.encrypt_bytes(&serialise(plaintext)?)
+    }
+
+    /// Encrypts bytestring `plaintext` using authenticated symmetric encryption.
+    ///
+    /// With authenticated encryption the recipient will be able to confirm that the message
+    /// is untampered with.
+    ///
+    /// Returns ciphertext in case of success.
+    /// Can return an `EncryptionError` in case of a serialisation error.
+    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+        let nonce = secretbox::gen_nonce();
+        let ciphertext = secretbox::seal(plaintext, &nonce, &self.encrypt);
+        Ok(serialise(&CipherText {
+            nonce: nonce.0,
+            ciphertext,
+        })?)
+    }
+
+    /// Decrypts serialised `ciphertext` encrypted using authenticated symmetric encryption.
+    ///
+    /// With authenticated encryption we will be able to tell that the message hasn't been
+    /// tampered with.
+    ///
+    /// Returns deserialised type `T` in case of success.
+    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// is not valid, or if it can not be decrypted.
+    pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
+    where
+        T: DeserializeOwned + Serialize,
+    {
+        Ok(deserialise(&self.decrypt_bytes(ciphertext)?)?)
+    }
+
+    /// Decrypts bytestring `ciphertext` encrypted using authenticated symmetric encryption.
+    ///
+    /// With authenticated encryption we will be able to tell that the message hasn't been
+    /// tampered with.
+    ///
+    /// Returns plaintext in case of success.
+    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// is not valid, or if it can not be decrypted.
+    pub fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+        let CipherText { nonce, ciphertext } = deserialise(ciphertext)?;
+        Ok(secretbox::open(
+            &ciphertext,
+            &secretbox::Nonce(nonce),
+            &self.encrypt,
+        )?)
     }
 }
 
@@ -383,21 +462,21 @@ mod tests {
         let error_res: Result<_, _> = shared_sk2.decrypt_bytes(&plaintext);
         match error_res {
             Err(_e) => (),
-            Ok(_) => {
-                panic!("Unexpected result: we're using wrong data, it should have returned error")
-            }
+            Ok(_) => panic!(
+                "Unexpected result: we're using wrong data, it should have returned an error"
+            ),
         }
 
         // Trying with a wrong key
         let sk3 = SecretId::new();
         let shared_sk3 = sk3.shared_secret(&pk2);
 
-        let error_res: Result<_, _> = shared_sk3.decrypt_bytes(&ciphertext);
+        let error_res = shared_sk3.decrypt_bytes(&ciphertext);
         match error_res {
             Err(_e) => (),
-            Ok(_) => {
-                panic!("Unexpected result: we're using a wrong key, it should have returned error")
-            }
+            Ok(_) => panic!(
+                "Unexpected result: we're using a wrong key, it should have returned an error"
+            ),
         }
     }
 
@@ -424,6 +503,36 @@ mod tests {
         assert!(!pk2.verify_detached(&sig1, &data2));
         assert!(!pk2.verify_detached(&sig2, &data1));
         assert!(pk2.verify_detached(&sig2, &data2));
+    }
+
+    #[test]
+    fn symmetric() {
+        let data = generate_random_string(50);
+
+        let sk1 = SymmetricKey::new();
+        let sk2 = SymmetricKey::new();
+
+        let ciphertext = unwrap!(sk1.encrypt_bytes(&data), "could not encrypt data");
+        let plaintext = unwrap!(sk1.decrypt_bytes(&ciphertext), "could not decrypt data");
+
+        assert_eq!(plaintext, data);
+
+        // Try to decrypt the ciphertext with an incorrect key
+        match sk2.decrypt_bytes(&ciphertext) {
+            Err(_) => (),
+            Ok(_) => panic!(
+                "Unexpected result: we're using a wrong key, it should have returned an error"
+            ),
+        }
+
+        // Try to use automatic serialisation/deserialisation
+        let mut os_rng = unwrap!(OsRng::new());
+        let data: Vec<u64> = os_rng.sample_iter(&Standard).take(32).collect();
+
+        let ciphertext = unwrap!(sk2.encrypt(&data), "could not encrypt data");
+        let plaintext: Vec<u64> = unwrap!(sk2.decrypt(&ciphertext), "could not decrypt data");
+
+        assert_eq!(plaintext, data);
     }
 
     fn generate_random_string(length: usize) -> Vec<u8> {

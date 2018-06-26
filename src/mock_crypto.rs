@@ -162,8 +162,8 @@ pub mod rust_sodium {
             /// Generate mock shared key
             pub fn precompute(pk: &PublicKey, sk: &SecretKey) -> PrecomputedKey {
                 let mut shared_secret: [u8; SECRETKEYBYTES] = [0; SECRETKEYBYTES];
-                for i in 0..pk.0.len() {
-                    shared_secret[i] = pk.0[i] ^ sk.0[i];
+                for (i, shared) in shared_secret.iter_mut().enumerate().take(pk.0.len()) {
+                    *shared = pk.0[i] ^ sk.0[i];
                 }
                 PrecomputedKey(shared_secret)
             }
@@ -224,6 +224,61 @@ pub mod rust_sodium {
                 }
 
                 Ok(c[p..].to_vec())
+            }
+        }
+
+        /// Mock symmetric encryption.
+        pub mod secretbox {
+            use super::super::with_rng;
+            use rand::Rng;
+
+            /// Number of bytes in a `Key`.
+            pub const KEYBYTES: usize = 8;
+            /// Number of bytes in a `Nonce`.
+            pub const NONCEBYTES: usize = 4;
+
+            /// Mock secret key for symmetric encryption/decryption.
+            #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+                     Serialize)]
+            pub struct Key(pub [u8; KEYBYTES]);
+
+            /// Mock nonce for symmetric encryption/decryption.
+            #[derive(Serialize, Deserialize)]
+            pub struct Nonce(pub [u8; NONCEBYTES]);
+
+            /// Generate mock public and corresponding secret key.
+            pub fn gen_key() -> Key {
+                with_rng(|rng| Key(rng.gen()))
+            }
+
+            /// Generate mock nonce.
+            pub fn gen_nonce() -> Nonce {
+                with_rng(|rng| Nonce(rng.gen()))
+            }
+
+            /// Perform mock symmetric encryption.
+            pub fn seal(m: &[u8], nonce: &Nonce, key: &Key) -> Vec<u8> {
+                let mut result = Vec::with_capacity(m.len() + nonce.0.len() + key.0.len());
+                result.extend(&key.0);
+                result.extend(&nonce.0);
+                result.extend(m);
+                result
+            }
+
+            /// Perform mock symmetric decryption.
+            pub fn open(c: &[u8], nonce: &Nonce, key: &Key) -> Result<Vec<u8>, ()> {
+                let p = key.0.len();
+                let n = nonce.0.len();
+
+                if c[0..p] != key.0 {
+                    return Err(());
+                }
+
+                if c[p..p + n] != nonce.0 {
+                    return Err(());
+                }
+
+                Ok(c[p + n..].to_vec())
             }
         }
     }
