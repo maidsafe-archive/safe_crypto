@@ -40,14 +40,16 @@ pub mod rust_sodium {
         pub mod sign {
             use super::super::with_rng;
             use rand::Rng;
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::Hasher;
             use std::ops::{Index, RangeFull};
 
             /// Number of bytes in a `PublicKey`.
-            pub const PUBLICKEYBYTES: usize = 32;
+            pub const PUBLICKEYBYTES: usize = 8;
             /// Number of bytes in a `SecretKey`.
-            pub const SECRETKEYBYTES: usize = 32;
+            pub const SECRETKEYBYTES: usize = 8;
             /// Number of bytes in a `Signature`.
-            pub const SIGNATUREBYTES: usize = 32;
+            pub const SIGNATUREBYTES: usize = 8;
 
             /// Mock signing public key.
             #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
@@ -88,19 +90,31 @@ pub mod rust_sodium {
             pub fn sign_detached(m: &[u8], sk: &SecretKey) -> Signature {
                 let mut temp = m.to_vec();
                 temp.extend(&sk.0);
-                Signature(hash256(&temp))
+                Signature(hash128(&temp))
             }
 
             /// Verify the mock signature against the message and the signer's mock public key.
             pub fn verify_detached(signature: &Signature, m: &[u8], pk: &PublicKey) -> bool {
                 let mut temp = m.to_vec();
                 temp.extend(&pk.0);
-                *signature == Signature(hash256(&temp))
+                *signature == Signature(hash128(&temp))
             }
 
-            fn hash256(data: &[u8]) -> [u8; 32] {
-                use tiny_keccak::sha3_256;
-                sha3_256(data)
+            fn hash128(data: &[u8]) -> [u8; 8] {
+                let mut hasher = DefaultHasher::new();
+                hasher.write(data);
+
+                let hash = hasher.finish();
+                [
+                    ((hash >> 56) & 0xFF) as u8,
+                    ((hash >> 48) & 0xFF) as u8,
+                    ((hash >> 40) & 0xFF) as u8,
+                    ((hash >> 32) & 0xFF) as u8,
+                    ((hash >> 24) & 0xFF) as u8,
+                    ((hash >> 16) & 0xFF) as u8,
+                    ((hash >> 8) & 0xFF) as u8,
+                    (hash & 0xFF) as u8,
+                ]
             }
         }
 
@@ -110,9 +124,9 @@ pub mod rust_sodium {
             use rand::Rng;
 
             /// Number of bytes in a `PublicKey`.
-            pub const PUBLICKEYBYTES: usize = 32;
+            pub const PUBLICKEYBYTES: usize = 8;
             /// Number of bytes in a `SecretKey`.
-            pub const SECRETKEYBYTES: usize = 32;
+            pub const SECRETKEYBYTES: usize = 8;
             /// Number of bytes in a `Nonce`.
             pub const NONCEBYTES: usize = 4;
 
@@ -130,7 +144,7 @@ pub mod rust_sodium {
             pub struct Nonce(pub [u8; NONCEBYTES]);
 
             #[derive(Clone, Debug, Eq, PartialEq)]
-            pub struct PrecomputedKey(pub [u8; 32]);
+            pub struct PrecomputedKey(pub [u8; SECRETKEYBYTES]);
 
             /// Generate mock public and corresponding secret key.
             pub fn gen_keypair() -> (PublicKey, SecretKey) {
@@ -198,10 +212,14 @@ pub mod rust_sodium {
             }
 
             /// Perform mock anonymous decryption.
-            pub fn open(c: &[u8], pk: &PublicKey, _sk: &SecretKey) -> Result<Vec<u8>, ()> {
+            pub fn open(c: &[u8], pk: &PublicKey, sk: &SecretKey) -> Result<Vec<u8>, ()> {
                 let p = pk.0.len();
 
                 if c[0..p] != pk.0 {
+                    return Err(());
+                }
+
+                if pk.0 != sk.0 {
                     return Err(());
                 }
 

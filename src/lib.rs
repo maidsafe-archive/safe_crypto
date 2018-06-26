@@ -39,8 +39,6 @@ extern crate rand;
 #[cfg(not(feature = "use-mock-crypto"))]
 extern crate rust_sodium;
 extern crate serde;
-#[cfg(feature = "use-mock-crypto")]
-extern crate tiny_keccak;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]

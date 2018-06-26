@@ -16,10 +16,9 @@ serde = "~1.0.66"
 serde_derive = "~1.0.66"
 unwrap = "~1.1.0"
 rand = { version = "~0.5.2", optional = true }
-tiny-keccak = { version = "~1.4.2", optional = true }
 
 [dev-dependencies]
 rand = "~0.5.2"
 
 [features]
-use-mock-crypto = ["rand", "tiny-keccak"]
+use-mock-crypto = ["rand"]
