@@ -14,11 +14,11 @@
 
 /// Mock version of a subset of the `rust_sodium` crate.
 pub mod rust_sodium {
-    use rand::{self, FromEntropy, Rng, SeedableRng, XorShiftRng};
+    use rand::{Rng, SeedableRng, XorShiftRng};
     use std::cell::RefCell;
 
     thread_local! {
-        static RNG: RefCell<XorShiftRng> = RefCell::new(XorShiftRng::from_entropy());
+        static RNG: RefCell<XorShiftRng> = RefCell::new(XorShiftRng::new_unseeded());
     }
 
     /// Initialise mock `rust_sodium`.
@@ -28,9 +28,8 @@ pub mod rust_sodium {
 
     /// Initialise mock `rust_sodium` with the given random number generator. This can be used to
     /// guarantee reproducible test results.
-    pub fn init_with_rng<T: Rng>(other: &mut T) -> Result<(), rand::Error> {
-        let new_rng = XorShiftRng::from_rng(other)?;
-        let _ = RNG.with(move |rng| rng.replace(new_rng));
+    pub fn init_with_rng<T: Rng>(other: &mut T) -> Result<(), i32> {
+        RNG.with(|rng| rng.borrow_mut().reseed(other.gen()));
         Ok(())
     }
 
@@ -90,17 +89,17 @@ pub mod rust_sodium {
             pub fn sign_detached(m: &[u8], sk: &SecretKey) -> Signature {
                 let mut temp = m.to_vec();
                 temp.extend(&sk.0);
-                Signature(hash128(&temp))
+                Signature(hash64(&temp))
             }
 
             /// Verify the mock signature against the message and the signer's mock public key.
             pub fn verify_detached(signature: &Signature, m: &[u8], pk: &PublicKey) -> bool {
                 let mut temp = m.to_vec();
                 temp.extend(&pk.0);
-                *signature == Signature(hash128(&temp))
+                *signature == Signature(hash64(&temp))
             }
 
-            fn hash128(data: &[u8]) -> [u8; 8] {
+            fn hash64(data: &[u8]) -> [u8; 8] {
                 let mut hasher = DefaultHasher::new();
                 hasher.write(data);
 
@@ -294,7 +293,7 @@ pub mod rust_sodium {
 #[cfg(test)]
 mod tests {
     use super::rust_sodium::crypto::{box_, sign};
-    use rand::{self, distributions::Standard, Rng};
+    use rand::{self, Rng};
 
     #[test]
     fn keypair_generation() {
@@ -312,7 +311,7 @@ mod tests {
     #[test]
     fn sign_and_verify() {
         let (pk0, sk0) = sign::gen_keypair();
-        let message: Vec<_> = rand::thread_rng().sample_iter(&Standard).take(10).collect();
+        let message: Vec<_> = rand::thread_rng().gen_iter().take(10).collect();
 
         let signature = sign::sign_detached(&message, &sk0);
         assert!(sign::verify_detached(&signature, &message, &pk0));

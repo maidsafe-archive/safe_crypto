@@ -388,7 +388,7 @@ quick_error! {
 #[cfg(test)]
 mod tests {
     extern crate rand;
-    use self::rand::{distributions::Alphanumeric, distributions::Standard, OsRng, Rng};
+    use self::rand::{OsRng, Rng};
     use super::*;
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn anonymous_cipher() {
         let mut os_rng = unwrap!(OsRng::new());
-        let data: Vec<u64> = os_rng.sample_iter(&Standard).take(32).collect();
+        let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
 
         let sk = SecretId::new();
         let pk = sk.public_id();
@@ -514,7 +514,7 @@ mod tests {
 
         // Try to use automatic serialisation/deserialisation
         let mut os_rng = unwrap!(OsRng::new());
-        let data: Vec<u64> = os_rng.sample_iter(&Standard).take(32).collect();
+        let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
 
         let ciphertext = unwrap!(sk2.encrypt(&data), "could not encrypt data");
         let plaintext: Vec<u64> = unwrap!(sk2.decrypt(&ciphertext), "could not decrypt data");
@@ -525,7 +525,8 @@ mod tests {
     fn generate_random_bytes(length: usize) -> Vec<u8> {
         let mut os_rng = unwrap!(OsRng::new());
         os_rng
-            .sample_iter(&Alphanumeric)
+            .gen_iter::<char>()
+            .filter(|c| *c != '\u{0}')
             .take(length)
             .collect::<String>()
             .into_bytes()
