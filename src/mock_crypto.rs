@@ -22,8 +22,8 @@ pub mod rust_sodium {
     }
 
     /// Initialise mock `rust_sodium`.
-    pub fn init() -> bool {
-        true
+    pub fn init() -> Result<(), ()> {
+        Ok(())
     }
 
     /// Initialise mock `rust_sodium` with the given random number generator. This can be used to

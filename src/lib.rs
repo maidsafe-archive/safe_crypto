@@ -34,7 +34,6 @@
 )]
 
 extern crate maidsafe_utilities;
-#[cfg(feature = "use-mock-crypto")]
 extern crate rand;
 #[cfg(not(feature = "use-mock-crypto"))]
 extern crate rust_sodium;
@@ -53,11 +52,23 @@ mod mock_crypto;
 use mock_crypto::rust_sodium;
 
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
+use rand::Rng;
 use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
-#[cfg(feature = "use-mock-crypto")]
-pub use rust_sodium::{init as mock_crypto_init, init_with_rng as mock_crypto_init_with_rng};
+use rust_sodium::{init as rust_sodium_init, init_with_rng as rust_sodium_init_with_rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
+
+/// Initialise random number generator for the key generation functions.
+pub fn init() -> Result<(), ()> {
+    rust_sodium_init()
+}
+
+/// Initialise the key generation functions with a custom random number generator `rng`.
+/// Can be used for deterministic key generation in tests.
+/// Returns an error in case of an random generator initialisation error.
+pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), EncryptionError> {
+    rust_sodium_init_with_rng(rng).map_err(EncryptionError::InitError)
+}
 
 /// Represents a public identity, consisting of a public signature key and a public
 /// encryption key.
@@ -380,6 +391,11 @@ quick_error! {
         /// Occurs when we can't decrypt a message or verify the signature.
         DecryptVerify(_e: ()) {
             description("error decrypting/verifying message")
+            from()
+        }
+        /// Occurs in case of an error during initialisation.
+        InitError(e: i32) {
+            description("error while initialising random generator")
             from()
         }
     }
