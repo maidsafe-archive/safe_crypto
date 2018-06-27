@@ -32,3 +32,4 @@ build_script:
 
 test_script:
   - cargo test --verbose --release
+  - cargo test --verbose --release --features use-mock-crypto
