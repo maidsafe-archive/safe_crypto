@@ -120,6 +120,29 @@ struct CipherText {
 }
 
 impl PublicId {
+    /// Returns a public key representing this public identity.
+    #[cfg(feature = "use-mock-crypto")]
+    pub fn name(&self) -> [u8; 32] {
+        // Pads the key to 32 bytes for mock-crypto
+        let mut key_array = [0; 32];
+        let full_len_key = self
+            .sign
+            .0
+            .iter()
+            .cloned()
+            .cycle()
+            .take(32)
+            .collect::<Vec<u8>>();
+        key_array.copy_from_slice(&full_len_key[0..32]);
+        key_array
+    }
+
+    /// Returns a public key representing this public identity.
+    #[cfg(not(feature = "use-mock-crypto"))]
+    pub fn name(&self) -> [u8; 32] {
+        self.sign.0
+    }
+
     /// Encrypts serialisable `plaintext` using anonymous encryption.
     ///
     /// Anonymous encryption will use an ephemeral public key, so the recipient won't
@@ -536,6 +559,17 @@ mod tests {
         let plaintext: Vec<u64> = unwrap!(sk2.decrypt(&ciphertext), "could not decrypt data");
 
         assert_eq!(plaintext, data);
+    }
+
+    #[cfg(feature = "use-mock-crypto")]
+    #[test]
+    fn name() {
+        let sk1 = SecretId::new();
+        let pk1 = sk1.public_id();
+        assert_eq!(
+            &pk1.name(),
+            &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
+        );
     }
 
     fn generate_random_bytes(length: usize) -> Vec<u8> {
