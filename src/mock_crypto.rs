@@ -1,7 +1,7 @@
 // Copyright 2018 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under the MIT license <LICENSE-MIT
-// http://opensource.org/licenses/MIT> or the Modified BSD license <LICENSE-BSD
+// https://opensource.org/licenses/MIT> or the Modified BSD license <LICENSE-BSD
 // https://opensource.org/licenses/BSD-3-Clause>, at your option. This file may not be copied,
 // modified, or distributed except according to those terms. Please review the Licences for the
 // specific language governing permissions and limitations relating to use of the SAFE Network
@@ -35,7 +35,7 @@ pub mod rust_sodium {
     }
 
     /// Mock cryptographic functions.
-    pub mod crypto {
+    pub(crate) mod crypto {
         /// Mock signing.
         pub mod sign {
             use super::super::with_rng;
@@ -106,14 +106,14 @@ pub mod rust_sodium {
 
                 let hash = hasher.finish();
                 [
-                    ((hash >> 56) & 0xFF) as u8,
-                    ((hash >> 48) & 0xFF) as u8,
-                    ((hash >> 40) & 0xFF) as u8,
-                    ((hash >> 32) & 0xFF) as u8,
-                    ((hash >> 24) & 0xFF) as u8,
-                    ((hash >> 16) & 0xFF) as u8,
-                    ((hash >> 8) & 0xFF) as u8,
-                    (hash & 0xFF) as u8,
+                    (hash >> 56) as u8,
+                    (hash >> 48) as u8,
+                    (hash >> 40) as u8,
+                    (hash >> 32) as u8,
+                    (hash >> 24) as u8,
+                    (hash >> 16) as u8,
+                    (hash >> 8) as u8,
+                    (hash) as u8,
                 ]
             }
         }

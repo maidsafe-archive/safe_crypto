@@ -1,7 +1,7 @@
 // Copyright 2018 MaidSafe.net limited.
 //
 // This SAFE Network Software is licensed to you under the MIT license <LICENSE-MIT
-// http://opensource.org/licenses/MIT> or the Modified BSD license <LICENSE-BSD
+// https://opensource.org/licenses/MIT> or the Modified BSD license <LICENSE-BSD
 // https://opensource.org/licenses/BSD-3-Clause>, at your option. This file may not be copied,
 // modified, or distributed except according to those terms. Please review the Licences for the
 // specific language governing permissions and limitations relating to use of the SAFE Network
@@ -358,6 +358,12 @@ impl SymmetricKey {
     }
 }
 
+impl Default for SymmetricKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 quick_error! {
     /// This error is returned if encryption or decryption fail.
     /// The encryption failure is rare and mostly connected to serialisation failures.
@@ -387,7 +393,7 @@ mod tests {
 
     #[test]
     fn anonymous_bytes_cipher() {
-        let data = generate_random_string(50);
+        let data = generate_random_bytes(50);
         let sk = SecretId::new();
         let sk2 = SecretId::new();
         let pk = sk.public_id();
@@ -395,21 +401,13 @@ mod tests {
         let ciphertext = pk.encrypt_anonymous_bytes(&data);
         assert_ne!(&ciphertext, &data);
 
-        let error_res: Result<_, _> = sk.decrypt_anonymous_bytes(&data);
-        match error_res {
-            Err(_e) => (),
-            Ok(_) => {
-                panic!("Unexpected result: we're using wrong data, it should have returned error")
-            }
-        }
+        let _ = sk
+            .decrypt_anonymous_bytes(&data)
+            .expect_err("Unexpected result: we're using wrong data, it should have returned error");
 
-        let error_res: Result<_, _> = sk2.decrypt_anonymous_bytes(&ciphertext);
-        match error_res {
-            Err(_e) => (),
-            Ok(_) => {
-                panic!("Unexpected result: we're using a wrong key, it should have returned error")
-            }
-        }
+        let _ = sk2.decrypt_anonymous_bytes(&ciphertext).expect_err(
+            "Unexpected result: we're using a wrong key, it should have returned error",
+        );
 
         let plaintext: Vec<u8> = unwrap!(
             sk.decrypt_anonymous_bytes(&ciphertext),
@@ -438,7 +436,7 @@ mod tests {
 
     #[test]
     fn authenticated_cipher() {
-        let data = generate_random_string(50);
+        let data = generate_random_bytes(50);
 
         let sk1 = SecretId::new();
         let pk1 = sk1.public_id();
@@ -459,31 +457,23 @@ mod tests {
         assert_eq!(&plaintext, &data);
 
         // Trying with wrong data
-        let error_res: Result<_, _> = shared_sk2.decrypt_bytes(&plaintext);
-        match error_res {
-            Err(_e) => (),
-            Ok(_) => panic!(
-                "Unexpected result: we're using wrong data, it should have returned an error"
-            ),
-        }
+        let _ = shared_sk2.decrypt_bytes(&plaintext).expect_err(
+            "Unexpected result: we're using wrong data, it should have returned an error",
+        );
 
         // Trying with a wrong key
         let sk3 = SecretId::new();
         let shared_sk3 = sk3.shared_secret(&pk2);
 
-        let error_res = shared_sk3.decrypt_bytes(&ciphertext);
-        match error_res {
-            Err(_e) => (),
-            Ok(_) => panic!(
-                "Unexpected result: we're using a wrong key, it should have returned an error"
-            ),
-        }
+        let _ = shared_sk3.decrypt_bytes(&ciphertext).expect_err(
+            "Unexpected result: we're using a wrong key, it should have returned an error",
+        );
     }
 
     #[test]
     fn signing() {
-        let data1 = generate_random_string(50);
-        let data2 = generate_random_string(50);
+        let data1 = generate_random_bytes(50);
+        let data2 = generate_random_bytes(50);
 
         let sk1 = SecretId::new();
         let pk1 = sk1.public_id();
@@ -507,7 +497,7 @@ mod tests {
 
     #[test]
     fn symmetric() {
-        let data = generate_random_string(50);
+        let data = generate_random_bytes(50);
 
         let sk1 = SymmetricKey::new();
         let sk2 = SymmetricKey::new();
@@ -518,12 +508,9 @@ mod tests {
         assert_eq!(plaintext, data);
 
         // Try to decrypt the ciphertext with an incorrect key
-        match sk2.decrypt_bytes(&ciphertext) {
-            Err(_) => (),
-            Ok(_) => panic!(
-                "Unexpected result: we're using a wrong key, it should have returned an error"
-            ),
-        }
+        let _ = sk2.decrypt_bytes(&ciphertext).expect_err(
+            "Unexpected result: we're using a wrong key, it should have returned an error",
+        );
 
         // Try to use automatic serialisation/deserialisation
         let mut os_rng = unwrap!(OsRng::new());
@@ -535,7 +522,7 @@ mod tests {
         assert_eq!(plaintext, data);
     }
 
-    fn generate_random_string(length: usize) -> Vec<u8> {
+    fn generate_random_bytes(length: usize) -> Vec<u8> {
         let mut os_rng = unwrap!(OsRng::new());
         os_rng
             .sample_iter(&Alphanumeric)
