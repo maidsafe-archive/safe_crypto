@@ -54,20 +54,19 @@ use mock_crypto::rust_sodium;
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 use rand::Rng;
 use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
-use rust_sodium::{init as rust_sodium_init, init_with_rng as rust_sodium_init_with_rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
 /// Initialise random number generator for the key generation functions.
 pub fn init() -> Result<(), ()> {
-    rust_sodium_init()
+    rust_sodium::init()
 }
 
 /// Initialise the key generation functions with a custom random number generator `rng`.
 /// Can be used for deterministic key generation in tests.
 /// Returns an error in case of an random generator initialisation error.
 pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), EncryptionError> {
-    rust_sodium_init_with_rng(rng).map_err(EncryptionError::InitError)
+    rust_sodium::init_with_rng(rng).map_err(EncryptionError::InitError)
 }
 
 /// Represents a public identity, consisting of a public signature key and a public
@@ -124,17 +123,16 @@ impl PublicId {
     #[cfg(feature = "use-mock-crypto")]
     pub fn name(&self) -> [u8; 32] {
         // Pads the key to 32 bytes for mock-crypto
-        let mut key_array = [0; 32];
-        let full_len_key = self
-            .sign
+        let mut full_len_key = [0; 32];
+        self.sign
             .0
             .iter()
             .cloned()
             .cycle()
             .take(32)
-            .collect::<Vec<u8>>();
-        key_array.copy_from_slice(&full_len_key[0..32]);
-        key_array
+            .enumerate()
+            .for_each(|(i, v)| full_len_key[i] = v);
+        full_len_key
     }
 
     /// Returns a public key representing this public identity.
@@ -440,13 +438,21 @@ mod tests {
         let ciphertext = pk.encrypt_anonymous_bytes(&data);
         assert_ne!(&ciphertext, &data);
 
-        let _ = sk
-            .decrypt_anonymous_bytes(&data)
-            .expect_err("Unexpected result: we're using wrong data, it should have returned error");
+        let error_res = sk.decrypt_anonymous_bytes(&data);
+        match error_res {
+            Err(_e) => (),
+            Ok(_) => {
+                panic!("Unexpected result: we're using wrong data, it should have returned error")
+            }
+        }
 
-        let _ = sk2.decrypt_anonymous_bytes(&ciphertext).expect_err(
-            "Unexpected result: we're using a wrong key, it should have returned error",
-        );
+        let error_res: Result<_, _> = sk2.decrypt_anonymous_bytes(&ciphertext);
+        match error_res {
+            Err(_e) => (),
+            Ok(_) => {
+                panic!("Unexpected result: we're using a wrong key, it should have returned error")
+            }
+        }
 
         let plaintext: Vec<u8> = unwrap!(
             sk.decrypt_anonymous_bytes(&ciphertext),
@@ -496,17 +502,25 @@ mod tests {
         assert_eq!(&plaintext, &data);
 
         // Trying with wrong data
-        let _ = shared_sk2.decrypt_bytes(&plaintext).expect_err(
-            "Unexpected result: we're using wrong data, it should have returned an error",
-        );
+        let error_res: Result<_, _> = shared_sk2.decrypt_bytes(&plaintext);
+        match error_res {
+            Err(_e) => (),
+            Ok(_) => panic!(
+                "Unexpected result: we're using wrong data, it should have returned an error"
+            ),
+        }
 
         // Trying with a wrong key
         let sk3 = SecretId::new();
         let shared_sk3 = sk3.shared_secret(&pk2);
 
-        let _ = shared_sk3.decrypt_bytes(&ciphertext).expect_err(
-            "Unexpected result: we're using a wrong key, it should have returned an error",
-        );
+        let error_res = shared_sk3.decrypt_bytes(&ciphertext);
+        match error_res {
+            Err(_e) => (),
+            Ok(_) => panic!(
+                "Unexpected result: we're using a wrong key, it should have returned an error"
+            ),
+        }
     }
 
     #[test]
@@ -547,9 +561,12 @@ mod tests {
         assert_eq!(plaintext, data);
 
         // Try to decrypt the ciphertext with an incorrect key
-        let _ = sk2.decrypt_bytes(&ciphertext).expect_err(
-            "Unexpected result: we're using a wrong key, it should have returned an error",
-        );
+        match sk2.decrypt_bytes(&ciphertext) {
+            Err(_) => (),
+            Ok(_) => panic!(
+                "Unexpected result: we're using a wrong key, it should have returned an error"
+            ),
+        }
 
         // Try to use automatic serialisation/deserialisation
         let mut os_rng = unwrap!(OsRng::new());
