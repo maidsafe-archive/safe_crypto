@@ -55,6 +55,7 @@ use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationErr
 use rand::Rng;
 use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
 use serde::{de::DeserializeOwned, Serialize};
+use std::fmt;
 use std::sync::Arc;
 
 /// Initialise random number generator for the key generation functions.
@@ -393,6 +394,18 @@ impl SymmetricKey {
 impl Default for SymmetricKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Display for PublicId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for b in &self.sign[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        for b in &self.encrypt[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
     }
 }
 
