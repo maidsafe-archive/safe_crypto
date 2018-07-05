@@ -321,6 +321,13 @@ impl SharedSecretKey {
     }
 }
 
+impl Signature {
+    /// Return the signature as an array of bytes
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.signature.0
+    }
+}
+
 impl SymmetricKey {
     /// Generates a new symmetric key.
     pub fn new() -> Self {
