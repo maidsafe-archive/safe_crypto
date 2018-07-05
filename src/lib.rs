@@ -55,6 +55,7 @@ use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationErr
 use rand::Rng;
 use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
 use serde::{de::DeserializeOwned, Serialize};
+use std::fmt;
 use std::sync::Arc;
 
 /// Initialise random number generator for the key generation functions.
@@ -121,7 +122,7 @@ struct CipherText {
 impl PublicId {
     /// Returns a public key representing this public identity.
     #[cfg(feature = "use-mock-crypto")]
-    pub fn name(&self) -> [u8; 32] {
+    pub fn signing_bytes(&self) -> [u8; 32] {
         // Pads the key to 32 bytes for mock-crypto
         let mut full_len_key = [0; 32];
         self.sign
@@ -137,7 +138,7 @@ impl PublicId {
 
     /// Returns a public key representing this public identity.
     #[cfg(not(feature = "use-mock-crypto"))]
-    pub fn name(&self) -> [u8; 32] {
+    pub fn signing_bytes(&self) -> [u8; 32] {
         self.sign.0
     }
 
@@ -320,6 +321,13 @@ impl SharedSecretKey {
     }
 }
 
+impl Signature {
+    /// Return the signature as an array of bytes
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.signature.0
+    }
+}
+
 impl SymmetricKey {
     /// Generates a new symmetric key.
     pub fn new() -> Self {
@@ -393,6 +401,18 @@ impl SymmetricKey {
 impl Default for SymmetricKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Display for PublicId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for b in &self.sign[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        for b in &self.encrypt[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
     }
 }
 
@@ -580,11 +600,11 @@ mod tests {
 
     #[cfg(feature = "use-mock-crypto")]
     #[test]
-    fn name() {
+    fn signing_bytes() {
         let sk1 = SecretId::new();
         let pk1 = sk1.public_id();
         assert_eq!(
-            &pk1.name(),
+            &pk1.signing_bytes(),
             &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
         );
     }
