@@ -122,7 +122,7 @@ struct CipherText {
 impl PublicId {
     /// Returns a public key representing this public identity.
     #[cfg(feature = "use-mock-crypto")]
-    pub fn name(&self) -> [u8; 32] {
+    pub fn signing_bytes(&self) -> [u8; 32] {
         // Pads the key to 32 bytes for mock-crypto
         let mut full_len_key = [0; 32];
         self.sign
@@ -138,7 +138,7 @@ impl PublicId {
 
     /// Returns a public key representing this public identity.
     #[cfg(not(feature = "use-mock-crypto"))]
-    pub fn name(&self) -> [u8; 32] {
+    pub fn signing_bytes(&self) -> [u8; 32] {
         self.sign.0
     }
 
@@ -600,11 +600,11 @@ mod tests {
 
     #[cfg(feature = "use-mock-crypto")]
     #[test]
-    fn name() {
+    fn signing_bytes() {
         let sk1 = SecretId::new();
         let pk1 = sk1.public_id();
         assert_eq!(
-            &pk1.name(),
+            &pk1.signing_bytes(),
             &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
         );
     }
