@@ -35,7 +35,7 @@
 
 extern crate maidsafe_utilities;
 extern crate rand;
-#[cfg(not(feature = "use-mock-crypto"))]
+#[cfg(not(feature = "mock"))]
 extern crate rust_sodium;
 extern crate serde;
 #[macro_use]
@@ -46,9 +46,9 @@ extern crate quick_error;
 #[macro_use]
 extern crate unwrap;
 
-#[cfg(feature = "use-mock-crypto")]
+#[cfg(feature = "mock")]
 mod mock_crypto;
-#[cfg(feature = "use-mock-crypto")]
+#[cfg(feature = "mock")]
 use mock_crypto::rust_sodium;
 
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
@@ -56,6 +56,9 @@ use rand::Rng;
 use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
+
+/// Represents public signature key.
+pub type PublicSignKey = [u8; 32];
 
 /// Initialise random number generator for the key generation functions.
 pub fn init() -> Result<(), ()> {
@@ -65,28 +68,28 @@ pub fn init() -> Result<(), ()> {
 /// Initialise the key generation functions with a custom random number generator `rng`.
 /// Can be used for deterministic key generation in tests.
 /// Returns an error in case of an random generator initialisation error.
-pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), EncryptionError> {
-    rust_sodium::init_with_rng(rng).map_err(EncryptionError::InitError)
+pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
+    rust_sodium::init_with_rng(rng).map_err(Error::InitError)
 }
 
-/// Represents a public identity, consisting of a public signature key and a public
+/// Represents a set of public keys, consisting of a public signature key and a public
 /// encryption key.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
-pub struct PublicId {
+pub struct PublicKeys {
     sign: sign::PublicKey,
     encrypt: box_::PublicKey,
 }
 
-/// Secret counterpart of the public identity, consisting of a secret signing key and
+/// Secret counterpart of the public key set, consisting of a secret signing key and
 /// a secret encryption key.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SecretId {
-    inner: Arc<SecretIdInner>,
-    public: PublicId,
+pub struct SecretKeys {
+    inner: Arc<SecretKeysInner>,
+    public: PublicKeys,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct SecretIdInner {
+struct SecretKeysInner {
     sign: sign::SecretKey,
     encrypt: box_::SecretKey,
 }
@@ -118,10 +121,10 @@ struct CipherText {
     ciphertext: Vec<u8>,
 }
 
-impl PublicId {
-    /// Returns a public key representing this public identity.
-    #[cfg(feature = "use-mock-crypto")]
-    pub fn name(&self) -> [u8; 32] {
+impl PublicKeys {
+    /// Returns a public signing key.
+    #[cfg(feature = "mock")]
+    pub fn public_sign_key(&self) -> PublicSignKey {
         // Pads the key to 32 bytes for mock-crypto
         let mut full_len_key = [0; 32];
         self.sign
@@ -135,9 +138,9 @@ impl PublicId {
         full_len_key
     }
 
-    /// Returns a public key representing this public identity.
-    #[cfg(not(feature = "use-mock-crypto"))]
-    pub fn name(&self) -> [u8; 32] {
+    /// Returns a public signing key.
+    #[cfg(not(feature = "mock"))]
+    pub fn public_sign_key(&self) -> PublicSignKey {
         self.sign.0
     }
 
@@ -149,8 +152,8 @@ impl PublicId {
     /// To use authenticated encryption, use `SharedSecretKey`.
     ///
     /// Returns ciphertext in case of success.
-    /// Can return an `EncryptionError` in case of a serialisation error.
-    pub fn encrypt_anonymous<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
+    /// Can return an `Error` in case of a serialisation error.
+    pub fn encrypt_anonymous<T>(&self, plaintext: &T) -> Result<Vec<u8>, Error>
     where
         T: Serialize,
     {
@@ -176,18 +179,18 @@ impl PublicId {
     }
 }
 
-impl SecretId {
+impl SecretKeys {
     /// Generates a pair of secret and public key sets.
-    pub fn new() -> SecretId {
+    pub fn new() -> SecretKeys {
         let (sign_pk, sign_sk) = sign::gen_keypair();
         let (encrypt_pk, encrypt_sk) = box_::gen_keypair();
-        let public = PublicId {
+        let public = PublicKeys {
             sign: sign_pk,
             encrypt: encrypt_pk,
         };
-        SecretId {
+        SecretKeys {
             public,
-            inner: Arc::new(SecretIdInner {
+            inner: Arc::new(SecretKeysInner {
                 sign: sign_sk,
                 encrypt: encrypt_sk,
             }),
@@ -195,7 +198,7 @@ impl SecretId {
     }
 
     /// Returns the public part of the secret key set.
-    pub fn public_id(&self) -> &PublicId {
+    pub fn public_id(&self) -> &PublicKeys {
         &self.public
     }
 
@@ -205,9 +208,9 @@ impl SecretId {
     /// tell who sent the ciphertext.
     ///
     /// Returns deserialised type `T` in case of success.
-    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext is
+    /// Can return `Error` in case of a deserialisation error, if the ciphertext is
     /// not valid, or if it can not be decrypted.
-    pub fn decrypt_anonymous<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
+    pub fn decrypt_anonymous<T>(&self, ciphertext: &[u8]) -> Result<T, Error>
     where
         T: Serialize + DeserializeOwned,
     {
@@ -220,8 +223,8 @@ impl SecretId {
     /// tell who sent the ciphertext.
     ///
     /// Returns plaintext in case of success.
-    /// Can return `EncryptionError` if the ciphertext is not valid or if it can not be decrypted.
-    pub fn decrypt_anonymous_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    /// Can return `Error` if the ciphertext is not valid or if it can not be decrypted.
+    pub fn decrypt_anonymous_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, Error> {
         Ok(sealedbox::open(
             ciphertext,
             &self.public.encrypt,
@@ -239,13 +242,13 @@ impl SecretId {
     }
 
     /// Computes a shared secret from our secret key and the recipient's public key.
-    pub fn shared_secret(&self, their_pk: &PublicId) -> SharedSecretKey {
+    pub fn shared_secret(&self, their_pk: &PublicKeys) -> SharedSecretKey {
         let precomputed = Arc::new(box_::precompute(&their_pk.encrypt, &self.inner.encrypt));
         SharedSecretKey { precomputed }
     }
 }
 
-impl Default for SecretId {
+impl Default for SecretKeys {
     fn default() -> Self {
         Self::new()
     }
@@ -256,12 +259,12 @@ impl SharedSecretKey {
     ///
     /// With authenticated encryption the recipient will be able to verify the authenticity
     /// of the sender using a sender's public key.
-    /// If you want to use anonymous encryption, use the functions provided by `PublicId`
-    /// and `SecretId`.
+    /// If you want to use anonymous encryption, use the functions provided by `PublicKeys`
+    /// and `SecretKeys`.
     ///
     /// Returns ciphertext in case of success.
-    /// Can return an `EncryptionError` in case of a serialisation error.
-    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    /// Can return an `Error` in case of a serialisation error.
+    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
         let nonce = box_::gen_nonce();
         let ciphertext = box_::seal_precomputed(plaintext, &nonce, &self.precomputed);
         Ok(serialise(&CipherText {
@@ -275,12 +278,12 @@ impl SharedSecretKey {
     /// With authenticated encryption the recipient will be able to verify the authenticity
     /// of the sender using a sender's public key.
     /// If you wish to encrypt bytestring plaintext, use `encrypt_bytes`.
-    /// If you want to use anonymous encryption, use the functions provided by `PublicId`
-    /// and `SecretId`.
+    /// If you want to use anonymous encryption, use the functions provided by `PublicKeys`
+    /// and `SecretKeys`.
     ///
     /// Returns ciphertext in case of success.
-    /// Can return an `EncryptionError` in case of a serialisation error.
-    pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError>
+    /// Can return an `Error` in case of a serialisation error.
+    pub fn encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, Error>
     where
         T: Serialize,
     {
@@ -293,9 +296,9 @@ impl SharedSecretKey {
     /// of the sender using a sender's public key.
     ///
     /// Returns plaintext in case of success.
-    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// Can return `Error` in case of a deserialisation error, if the ciphertext
     /// is not valid, or if it can not be decrypted.
-    pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    pub fn decrypt_bytes(&self, encoded: &[u8]) -> Result<Vec<u8>, Error> {
         let CipherText { nonce, ciphertext } = deserialise(encoded)?;
         Ok(box_::open_precomputed(
             &ciphertext,
@@ -310,9 +313,9 @@ impl SharedSecretKey {
     /// of the sender using a sender's public key.
     ///
     /// Returns deserialised type `T` in case of success.
-    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// Can return `Error` in case of a deserialisation error, if the ciphertext
     /// is not valid, or if it can not be decrypted.
-    pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
+    pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, Error>
     where
         T: Serialize + DeserializeOwned,
     {
@@ -336,8 +339,8 @@ impl SymmetricKey {
     /// If you wish to encrypt bytestring plaintext, use `encrypt_bytes`.
     ///
     /// Returns ciphertext in case of success.
-    /// Can return an `EncryptionError` in case of a serialisation error.
-    pub fn encrypt<T: Serialize>(&self, plaintext: &T) -> Result<Vec<u8>, EncryptionError> {
+    /// Can return an `Error` in case of a serialisation error.
+    pub fn encrypt<T: Serialize>(&self, plaintext: &T) -> Result<Vec<u8>, Error> {
         self.encrypt_bytes(&serialise(plaintext)?)
     }
 
@@ -347,8 +350,8 @@ impl SymmetricKey {
     /// is untampered with.
     ///
     /// Returns ciphertext in case of success.
-    /// Can return an `EncryptionError` in case of a serialisation error.
-    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    /// Can return an `Error` in case of a serialisation error.
+    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
         let nonce = secretbox::gen_nonce();
         let ciphertext = secretbox::seal(plaintext, &nonce, &self.encrypt);
         Ok(serialise(&CipherText {
@@ -363,9 +366,9 @@ impl SymmetricKey {
     /// tampered with.
     ///
     /// Returns deserialised type `T` in case of success.
-    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// Can return `Error` in case of a deserialisation error, if the ciphertext
     /// is not valid, or if it can not be decrypted.
-    pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, EncryptionError>
+    pub fn decrypt<T>(&self, ciphertext: &[u8]) -> Result<T, Error>
     where
         T: DeserializeOwned + Serialize,
     {
@@ -378,9 +381,9 @@ impl SymmetricKey {
     /// tampered with.
     ///
     /// Returns plaintext in case of success.
-    /// Can return `EncryptionError` in case of a deserialisation error, if the ciphertext
+    /// Can return `Error` in case of a deserialisation error, if the ciphertext
     /// is not valid, or if it can not be decrypted.
-    pub fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, EncryptionError> {
+    pub fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, Error> {
         let CipherText { nonce, ciphertext } = deserialise(ciphertext)?;
         Ok(secretbox::open(
             &ciphertext,
@@ -401,7 +404,7 @@ quick_error! {
     /// The encryption failure is rare and mostly connected to serialisation failures.
     /// Decryption can fail because of invalid keys, invalid data, or deserialisation failures.
     #[derive(Debug)]
-    pub enum EncryptionError {
+    pub enum Error {
         /// Occurs when serialisation or deserialisation fails.
         Serialisation(e: SerialisationError) {
             description("error serialising or deserialising message")
@@ -431,8 +434,8 @@ mod tests {
     #[test]
     fn anonymous_bytes_cipher() {
         let data = generate_random_bytes(50);
-        let sk = SecretId::new();
-        let sk2 = SecretId::new();
+        let sk = SecretKeys::new();
+        let sk2 = SecretKeys::new();
         let pk = sk.public_id();
 
         let ciphertext = pk.encrypt_anonymous_bytes(&data);
@@ -466,7 +469,7 @@ mod tests {
         let mut os_rng = unwrap!(OsRng::new());
         let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
 
-        let sk = SecretId::new();
+        let sk = SecretKeys::new();
         let pk = sk.public_id();
 
         let ciphertext = unwrap!(pk.encrypt_anonymous(&data), "couldn't encrypt base data");
@@ -483,10 +486,10 @@ mod tests {
     fn authenticated_cipher() {
         let data = generate_random_bytes(50);
 
-        let sk1 = SecretId::new();
+        let sk1 = SecretKeys::new();
         let pk1 = sk1.public_id();
 
-        let sk2 = SecretId::new();
+        let sk2 = SecretKeys::new();
         let pk2 = sk2.public_id();
 
         let shared_sk1 = sk1.shared_secret(&pk2);
@@ -511,7 +514,7 @@ mod tests {
         }
 
         // Trying with a wrong key
-        let sk3 = SecretId::new();
+        let sk3 = SecretKeys::new();
         let shared_sk3 = sk3.shared_secret(&pk2);
 
         let error_res = shared_sk3.decrypt_bytes(&ciphertext);
@@ -528,10 +531,10 @@ mod tests {
         let data1 = generate_random_bytes(50);
         let data2 = generate_random_bytes(50);
 
-        let sk1 = SecretId::new();
+        let sk1 = SecretKeys::new();
         let pk1 = sk1.public_id();
 
-        let sk2 = SecretId::new();
+        let sk2 = SecretKeys::new();
         let pk2 = sk2.public_id();
 
         let sig1 = sk1.sign_detached(&data1);
@@ -578,13 +581,13 @@ mod tests {
         assert_eq!(plaintext, data);
     }
 
-    #[cfg(feature = "use-mock-crypto")]
+    #[cfg(feature = "mock")]
     #[test]
     fn name() {
-        let sk1 = SecretId::new();
+        let sk1 = SecretKeys::new();
         let pk1 = sk1.public_id();
         assert_eq!(
-            &pk1.name(),
+            &pk1.public_sign_key(),
             &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
         );
     }

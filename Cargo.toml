@@ -18,4 +18,4 @@ unwrap = "~1.1.0"
 rand = "~0.4.2"
 
 [features]
-use-mock-crypto = []
+mock = []
