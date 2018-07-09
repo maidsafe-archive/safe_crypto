@@ -33,6 +33,9 @@
     variant_size_differences
 )]
 
+#[cfg(feature = "mock")]
+#[macro_use]
+extern crate lazy_static;
 extern crate maidsafe_utilities;
 #[cfg(any(test, feature = "mock"))]
 extern crate rand;
@@ -45,16 +48,20 @@ extern crate serde_derive;
 extern crate tiny_keccak;
 #[macro_use]
 extern crate quick_error;
-#[cfg(test)]
+#[cfg(any(test, feature = "mock"))]
 #[macro_use]
 extern crate unwrap;
 
 #[cfg(feature = "mock")]
 mod mock_crypto;
 #[cfg(feature = "mock")]
+mod seeded_rng;
+#[cfg(feature = "mock")]
 use mock_crypto::rust_sodium;
 #[cfg(feature = "mock")]
 use mock_crypto::tiny_keccak;
+#[cfg(feature = "mock")]
+pub use seeded_rng::SeededRng;
 
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 #[cfg(feature = "mock")]
