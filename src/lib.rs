@@ -34,12 +34,15 @@
 )]
 
 extern crate maidsafe_utilities;
+#[cfg(any(test, feature = "mock"))]
 extern crate rand;
 #[cfg(not(feature = "mock"))]
 extern crate rust_sodium;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[cfg(not(feature = "mock"))]
+extern crate tiny_keccak;
 #[macro_use]
 extern crate quick_error;
 #[cfg(test)]
@@ -50,8 +53,11 @@ extern crate unwrap;
 mod mock_crypto;
 #[cfg(feature = "mock")]
 use mock_crypto::rust_sodium;
+#[cfg(feature = "mock")]
+use mock_crypto::tiny_keccak;
 
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
+#[cfg(feature = "mock")]
 use rand::Rng;
 use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
 use serde::{de::DeserializeOwned, Serialize};
@@ -68,8 +74,14 @@ pub fn init() -> Result<(), ()> {
 /// Initialise the key generation functions with a custom random number generator `rng`.
 /// Can be used for deterministic key generation in tests.
 /// Returns an error in case of an random generator initialisation error.
+#[cfg(feature = "mock")]
 pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
     rust_sodium::init_with_rng(rng).map_err(Error::InitError)
+}
+
+/// Produces a 256-bit crypto hash out of the provided `data`.
+pub fn hash(data: &[u8]) -> [u8; 32] {
+    tiny_keccak::sha3_256(data)
 }
 
 /// Represents a set of public keys, consisting of a public signature key and a public
@@ -427,7 +439,6 @@ quick_error! {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
     use self::rand::{OsRng, Rng};
     use super::*;
 
@@ -590,6 +601,20 @@ mod tests {
             &pk1.public_sign_key(),
             &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
         );
+    }
+
+    #[test]
+    fn hashes() {
+        let mut data = generate_random_bytes(10);
+        let data2 = generate_random_bytes(10);
+
+        let h1 = hash(&data);
+
+        assert_eq!(h1, hash(&data));
+        assert_ne!(h1, hash(&data2));
+
+        data.push(1);
+        assert_ne!(h1, hash(&data));
     }
 
     fn generate_random_bytes(length: usize) -> Vec<u8> {

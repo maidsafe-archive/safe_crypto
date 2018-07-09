@@ -12,6 +12,23 @@
 //! These primitives are designed to be very fast (several times faster than the real ones), but
 //! they are NOT secure. They are supposed to be used for testing only.
 
+/// Mock hash functions.
+pub(crate) mod tiny_keccak {
+    use super::hash64;
+
+    /// Fast mock version of the Keccak SHA-3 hash function.
+    pub(crate) fn sha3_256(data: &[u8]) -> [u8; 32] {
+        let mut hash = [0; 32];
+        hash64(data)
+            .into_iter()
+            .cycle()
+            .take(32)
+            .enumerate()
+            .for_each(|(i, b)| hash[i] = *b);
+        hash
+    }
+}
+
 /// Mock version of a subset of the `rust_sodium` crate.
 pub(crate) mod rust_sodium {
     use rand::{Rng, SeedableRng, XorShiftRng};
@@ -38,9 +55,8 @@ pub(crate) mod rust_sodium {
         /// Mock signing.
         pub(crate) mod sign {
             use super::super::with_rng;
+            use mock_crypto::hash64;
             use rand::Rng;
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::Hasher;
             use std::ops::{Index, RangeFull};
 
             /// Number of bytes in a `PublicKey`.
@@ -97,23 +113,6 @@ pub(crate) mod rust_sodium {
                 let mut temp = m.to_vec();
                 temp.extend(&pk.0);
                 *signature == Signature(hash64(&temp))
-            }
-
-            fn hash64(data: &[u8]) -> [u8; 8] {
-                let mut hasher = DefaultHasher::new();
-                hasher.write(data);
-
-                let hash = hasher.finish();
-                [
-                    (hash >> 56) as u8,
-                    (hash >> 48) as u8,
-                    (hash >> 40) as u8,
-                    (hash >> 32) as u8,
-                    (hash >> 24) as u8,
-                    (hash >> 16) as u8,
-                    (hash >> 8) as u8,
-                    (hash) as u8,
-                ]
             }
         }
 
@@ -292,6 +291,26 @@ pub(crate) mod rust_sodium {
     {
         RNG.with(|rng| f(&mut *rng.borrow_mut()))
     }
+}
+
+fn hash64(data: &[u8]) -> [u8; 8] {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
+
+    let mut hasher = DefaultHasher::new();
+    hasher.write(data);
+
+    let hash = hasher.finish();
+    [
+        (hash >> 56) as u8,
+        (hash >> 48) as u8,
+        (hash >> 40) as u8,
+        (hash >> 32) as u8,
+        (hash >> 24) as u8,
+        (hash >> 16) as u8,
+        (hash >> 8) as u8,
+        (hash) as u8,
+    ]
 }
 
 #[cfg(test)]

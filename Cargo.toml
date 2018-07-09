@@ -15,7 +15,11 @@ rust_sodium = "~0.9.0"
 serde = "~1.0.66"
 serde_derive = "~1.0.66"
 unwrap = "~1.1.0"
+rand = { version = "~0.4.2", optional = true }
+tiny-keccak = "~1.4.2"
+
+[dev-dependencies]
 rand = "~0.4.2"
 
 [features]
-mock = []
+mock = ["rand"]
