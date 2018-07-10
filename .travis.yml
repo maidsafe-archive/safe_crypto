@@ -27,7 +27,8 @@ script:
       (
         set -x;
         cargo test --verbose --release &&
-        cargo test --verbose --release --features mock
+        cargo test --verbose --release --features mock &&
+        cargo test --verbose --release --features mock -- --ignored print_seed_only_once_for_multiple_failures
       );
     elif [[ $TRAVIS_OS_NAME == linux ]]; then
       (

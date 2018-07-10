@@ -40,12 +40,12 @@ extern crate maidsafe_utilities;
 #[cfg(any(test, feature = "mock"))]
 extern crate rand;
 #[cfg(not(feature = "mock"))]
-extern crate rust_sodium;
+extern crate rust_sodium as crypto_impl;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(not(feature = "mock"))]
-extern crate tiny_keccak;
+extern crate tiny_keccak as hashing_impl;
 #[macro_use]
 extern crate quick_error;
 #[cfg(any(test, feature = "mock"))]
@@ -57,16 +57,16 @@ mod mock_crypto;
 #[cfg(feature = "mock")]
 mod seeded_rng;
 #[cfg(feature = "mock")]
-use mock_crypto::rust_sodium;
+use mock_crypto::crypto_impl;
 #[cfg(feature = "mock")]
-use mock_crypto::tiny_keccak;
+use mock_crypto::hashing_impl;
 #[cfg(feature = "mock")]
 pub use seeded_rng::SeededRng;
 
+use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 #[cfg(feature = "mock")]
 use rand::Rng;
-use rust_sodium::crypto::{box_, sealedbox, secretbox, sign};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -75,7 +75,7 @@ pub type PublicSignKey = [u8; 32];
 
 /// Initialise random number generator for the key generation functions.
 pub fn init() -> Result<(), ()> {
-    rust_sodium::init()
+    crypto_impl::init()
 }
 
 /// Initialise the key generation functions with a custom random number generator `rng`.
@@ -83,12 +83,12 @@ pub fn init() -> Result<(), ()> {
 /// Returns an error in case of an random generator initialisation error.
 #[cfg(feature = "mock")]
 pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
-    rust_sodium::init_with_rng(rng).map_err(Error::InitError)
+    crypto_impl::init_with_rng(rng).map_err(Error::InitError)
 }
 
 /// Produces a 256-bit crypto hash out of the provided `data`.
 pub fn hash(data: &[u8]) -> [u8; 32] {
-    tiny_keccak::sha3_256(data)
+    hashing_impl::sha3_256(data)
 }
 
 /// Represents a set of public keys, consisting of a public signature key and a public
@@ -217,7 +217,7 @@ impl SecretKeys {
     }
 
     /// Returns the public part of the secret key set.
-    pub fn public_id(&self) -> &PublicKeys {
+    pub fn public_keys(&self) -> &PublicKeys {
         &self.public
     }
 
@@ -454,7 +454,7 @@ mod tests {
         let data = generate_random_bytes(50);
         let sk = SecretKeys::new();
         let sk2 = SecretKeys::new();
-        let pk = sk.public_id();
+        let pk = sk.public_keys();
 
         let ciphertext = pk.encrypt_anonymous_bytes(&data);
         assert_ne!(&ciphertext, &data);
@@ -488,7 +488,7 @@ mod tests {
         let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
 
         let sk = SecretKeys::new();
-        let pk = sk.public_id();
+        let pk = sk.public_keys();
 
         let ciphertext = unwrap!(pk.encrypt_anonymous(&data), "couldn't encrypt base data");
         assert!(!ciphertext.is_empty());
@@ -505,10 +505,10 @@ mod tests {
         let data = generate_random_bytes(50);
 
         let sk1 = SecretKeys::new();
-        let pk1 = sk1.public_id();
+        let pk1 = sk1.public_keys();
 
         let sk2 = SecretKeys::new();
-        let pk2 = sk2.public_id();
+        let pk2 = sk2.public_keys();
 
         let shared_sk1 = sk1.shared_secret(&pk2);
         let shared_sk2 = sk2.shared_secret(&pk1);
@@ -550,10 +550,10 @@ mod tests {
         let data2 = generate_random_bytes(50);
 
         let sk1 = SecretKeys::new();
-        let pk1 = sk1.public_id();
+        let pk1 = sk1.public_keys();
 
         let sk2 = SecretKeys::new();
-        let pk2 = sk2.public_id();
+        let pk2 = sk2.public_keys();
 
         let sig1 = sk1.sign_detached(&data1);
         let sig2 = sk2.sign_detached(&data2);
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn name() {
         let sk1 = SecretKeys::new();
-        let pk1 = sk1.public_id();
+        let pk1 = sk1.public_keys();
         assert_eq!(
             &pk1.public_sign_key(),
             &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]

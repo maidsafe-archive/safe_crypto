@@ -13,7 +13,7 @@
 //! they are NOT secure. They are supposed to be used for testing only.
 
 /// Mock hash functions.
-pub(crate) mod tiny_keccak {
+pub(crate) mod hashing_impl {
     use super::hash64;
 
     /// Fast mock version of the Keccak SHA-3 hash function.
@@ -30,7 +30,7 @@ pub(crate) mod tiny_keccak {
 }
 
 /// Mock version of a subset of the `rust_sodium` crate.
-pub(crate) mod rust_sodium {
+pub(crate) mod crypto_impl {
     use rand::{Rng, SeedableRng, XorShiftRng};
     use std::cell::RefCell;
 
@@ -315,7 +315,7 @@ fn hash64(data: &[u8]) -> [u8; 8] {
 
 #[cfg(test)]
 mod tests {
-    use super::rust_sodium::crypto::{box_, sign};
+    use super::crypto_impl::crypto::{box_, sign};
     use rand::{self, Rng};
 
     #[test]
