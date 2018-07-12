@@ -68,6 +68,7 @@ use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationErr
 #[cfg(feature = "mock")]
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
+use std::fmt;
 use std::sync::Arc;
 
 /// Represents public signature key.
@@ -342,6 +343,13 @@ impl SharedSecretKey {
     }
 }
 
+impl Signature {
+    /// Return the signature as an array of bytes
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.signature.0
+    }
+}
+
 impl SymmetricKey {
     /// Generates a new symmetric key.
     pub fn new() -> Self {
@@ -415,6 +423,18 @@ impl SymmetricKey {
 impl Default for SymmetricKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Display for PublicId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for b in &self.sign[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        for b in &self.encrypt[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
     }
 }
 
