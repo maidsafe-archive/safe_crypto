@@ -120,6 +120,7 @@ pub(crate) mod crypto_impl {
         pub(crate) mod box_ {
             use super::super::with_rng;
             use rand::Rng;
+            use std::ops::{Index, RangeFull};
 
             /// Number of bytes in a `PublicKey`.
             pub(crate) const PUBLICKEYBYTES: usize = 8;
@@ -132,6 +133,13 @@ pub(crate) mod crypto_impl {
             #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
                      Serialize)]
             pub(crate) struct PublicKey(pub(crate) [u8; PUBLICKEYBYTES]);
+
+            impl Index<RangeFull> for PublicKey {
+                type Output = [u8];
+                fn index(&self, index: RangeFull) -> &[u8] {
+                    self.0.index(index)
+                }
+            }
 
             /// Mock secret key for asymmetric encryption/decryption.
             #[derive(Clone, Debug, Eq, PartialEq)]
