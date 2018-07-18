@@ -67,7 +67,7 @@ use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 #[cfg(feature = "mock")]
 use rand::Rng;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, de::Deserializer, Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::sync::Arc;
 
@@ -457,6 +457,26 @@ impl Default for SymmetricKey {
     }
 }
 
+impl Serialize for SymmetricKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Serialize::serialize(&self.encrypt.0, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SymmetricKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(SymmetricKey::from_bytes(Deserialize::deserialize(
+            deserializer,
+        )?))
+    }
+}
+
 impl fmt::Display for PublicKeys {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for b in &self.sign[..] {
@@ -499,6 +519,7 @@ quick_error! {
 mod tests {
     use self::rand::{OsRng, Rng};
     use super::*;
+    use maidsafe_utilities::serialisation::{deserialise, serialise};
 
     #[test]
     fn anonymous_bytes_cipher() {
@@ -673,6 +694,31 @@ mod tests {
 
         data.push(1);
         assert_ne!(h1, hash(&data));
+    }
+
+    #[test]
+    fn symmetric_serialise() {
+        let data = generate_random_bytes(50);
+
+        let sk = SymmetricKey::new();
+        let ciphertext = unwrap!(sk.encrypt_bytes(&data), "could not encrypt data");
+        let serialised_sk = unwrap!(serialise(&sk), "could not serialise key");
+
+        // Try to decrypt the ciphertext with an incorrect key
+        let sk = SymmetricKey::new();
+
+        match sk.decrypt_bytes(&ciphertext) {
+            Err(_) => (),
+            Ok(_) => panic!(
+                "Unexpected result: we're using a wrong key, it should have returned an error"
+            ),
+        }
+
+        // Deserialise key
+        let sk: SymmetricKey = unwrap!(deserialise(&serialised_sk), "could not deserialise key");
+        let plaintext = unwrap!(sk.decrypt_bytes(&ciphertext), "could not decrypt data");
+
+        assert_eq!(plaintext, data);
     }
 
     fn generate_random_bytes(length: usize) -> Vec<u8> {
