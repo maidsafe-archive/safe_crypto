@@ -72,7 +72,7 @@ use std::fmt;
 use std::sync::Arc;
 
 /// Size of a nonce.
-pub const NONCE_SIZE: usize = box_::NONCEBYTES;
+pub const NONCE_SIZE: usize = secretbox::NONCEBYTES;
 /// Size of a secret symmetric key.
 pub const SYMMETRIC_KEY_SIZE: usize = secretbox::KEYBYTES;
 /// Size of a public signing key.
@@ -100,6 +100,11 @@ pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
 /// Produces a 256-bit crypto hash out of the provided `data`.
 pub fn hash(data: &[u8]) -> [u8; 32] {
     hashing_impl::sha3_256(data)
+}
+
+/// Generate a new unique nonce.
+pub fn gen_nonce() -> Nonce {
+    secretbox::gen_nonce().0
 }
 
 /// Represents a set of public keys, consisting of a public signature key and a public
@@ -405,12 +410,9 @@ impl SymmetricKey {
     /// Returns ciphertext in case of success.
     /// Can return an `Error` in case of a serialisation error.
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
-        let nonce = secretbox::gen_nonce();
-        let ciphertext = self.encrypt_bytes_with_nonce(plaintext, nonce.0);
-        Ok(serialise(&CipherText {
-            nonce: nonce.0,
-            ciphertext,
-        })?)
+        let nonce = gen_nonce();
+        let ciphertext = self.encrypt_bytes_with_nonce(plaintext, nonce);
+        Ok(serialise(&CipherText { nonce, ciphertext })?)
     }
 
     /// Decrypts serialised `ciphertext` encrypted using authenticated symmetric encryption.
