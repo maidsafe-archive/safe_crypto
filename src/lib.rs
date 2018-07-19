@@ -71,8 +71,8 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-/// Size of an initialisation vector.
-pub const IV_SIZE: usize = box_::NONCEBYTES;
+/// Size of a nonce.
+pub const NONCE_SIZE: usize = box_::NONCEBYTES;
 /// Size of a secret symmetric key.
 pub const SYMMETRIC_KEY_SIZE: usize = secretbox::KEYBYTES;
 /// Size of a public signing key.
@@ -81,8 +81,8 @@ pub const PUBLIC_SIGN_KEY_SIZE: usize = 32;
 /// Represents public signature key.
 pub type PublicSignKey = [u8; PUBLIC_SIGN_KEY_SIZE];
 
-/// Initialisation vector.
-pub type Iv = [u8; IV_SIZE];
+/// Nonce.
+pub type Nonce = [u8; NONCE_SIZE];
 
 /// Initialise random number generator for the key generation functions.
 pub fn init() -> Result<(), ()> {
@@ -147,7 +147,7 @@ pub struct SharedSecretKey {
 
 #[derive(Serialize, Deserialize)]
 struct CipherText {
-    nonce: Iv,
+    nonce: Nonce,
     ciphertext: Vec<u8>,
 }
 
@@ -389,15 +389,12 @@ impl SymmetricKey {
         self.encrypt_bytes(&serialise(plaintext)?)
     }
 
-    /// Encrypts bytestring `plaintext` using initialisation vector `iv`.
+    /// Encrypts bytestring `plaintext` using `nonce`.
+    /// You must not reuse the provided `nonce` with this key.
     ///
     /// Returns ciphertext in case of success.
-    pub fn encrypt_bytes_iv(&self, plaintext: &[u8], iv: Iv) -> Result<Vec<u8>, Error> {
-        Ok(secretbox::seal(
-            plaintext,
-            &secretbox::Nonce(iv),
-            &self.encrypt,
-        ))
+    pub fn encrypt_bytes_with_nonce(&self, plaintext: &[u8], nonce: Nonce) -> Vec<u8> {
+        secretbox::seal(plaintext, &secretbox::Nonce(nonce), &self.encrypt)
     }
 
     /// Encrypts bytestring `plaintext` using authenticated symmetric encryption.
@@ -409,7 +406,7 @@ impl SymmetricKey {
     /// Can return an `Error` in case of a serialisation error.
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
         let nonce = secretbox::gen_nonce();
-        let ciphertext = self.encrypt_bytes_iv(plaintext, nonce.0)?;
+        let ciphertext = self.encrypt_bytes_with_nonce(plaintext, nonce.0);
         Ok(serialise(&CipherText {
             nonce: nonce.0,
             ciphertext,
@@ -431,14 +428,18 @@ impl SymmetricKey {
         Ok(deserialise(&self.decrypt_bytes(ciphertext)?)?)
     }
 
-    /// Decrypts bytestring `ciphertext` using a provided initialisation vector `iv`.
+    /// Decrypts bytestring `ciphertext` using a provided nonce `nonce`.
     ///
     /// Returns plaintext in case of success.
     /// Can return `Error` if the ciphertext is not valid or if it can not be decrypted.
-    pub fn decrypt_bytes_iv(&self, ciphertext: &[u8], iv: Iv) -> Result<Vec<u8>, Error> {
+    pub fn decrypt_bytes_with_nonce(
+        &self,
+        ciphertext: &[u8],
+        nonce: Nonce,
+    ) -> Result<Vec<u8>, Error> {
         Ok(secretbox::open(
             &ciphertext,
-            &secretbox::Nonce(iv),
+            &secretbox::Nonce(nonce),
             &self.encrypt,
         )?)
     }
@@ -454,7 +455,7 @@ impl SymmetricKey {
     /// is not valid, or if it can not be decrypted.
     pub fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, Error> {
         let CipherText { nonce, ciphertext } = deserialise(ciphertext)?;
-        self.decrypt_bytes_iv(&ciphertext, nonce)
+        self.decrypt_bytes_with_nonce(&ciphertext, nonce)
     }
 }
 
