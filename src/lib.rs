@@ -67,12 +67,22 @@ use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 #[cfg(feature = "mock")]
 use rand::Rng;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, de::Deserializer, Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::sync::Arc;
 
+/// Size of an initialisation vector.
+pub const IV_SIZE: usize = box_::NONCEBYTES;
+/// Size of a secret symmetric key.
+pub const SYMMETRIC_KEY_SIZE: usize = secretbox::KEYBYTES;
+/// Size of a public signing key.
+pub const PUBLIC_SIGN_KEY_SIZE: usize = 32;
+
 /// Represents public signature key.
-pub type PublicSignKey = [u8; 32];
+pub type PublicSignKey = [u8; PUBLIC_SIGN_KEY_SIZE];
+
+/// Initialisation vector.
+pub type Iv = [u8; IV_SIZE];
 
 /// Initialise random number generator for the key generation functions.
 pub fn init() -> Result<(), ()> {
@@ -137,7 +147,7 @@ pub struct SharedSecretKey {
 
 #[derive(Serialize, Deserialize)]
 struct CipherText {
-    nonce: [u8; box_::NONCEBYTES],
+    nonce: Iv,
     ciphertext: Vec<u8>,
 }
 
@@ -146,13 +156,13 @@ impl PublicKeys {
     #[cfg(feature = "mock")]
     pub fn public_sign_key(&self) -> PublicSignKey {
         // Pads the key to 32 bytes for mock-crypto
-        let mut full_len_key = [0; 32];
+        let mut full_len_key = [0; PUBLIC_SIGN_KEY_SIZE];
         self.sign
             .0
             .iter()
             .cloned()
             .cycle()
-            .take(32)
+            .take(PUBLIC_SIGN_KEY_SIZE)
             .enumerate()
             .for_each(|(i, v)| full_len_key[i] = v);
         full_len_key
@@ -359,6 +369,14 @@ impl SymmetricKey {
         }
     }
 
+    /// Create a new key from bytes.
+    pub fn from_bytes(bytes: [u8; SYMMETRIC_KEY_SIZE]) -> Self {
+        let sk = secretbox::Key(bytes);
+        Self {
+            encrypt: Arc::new(sk),
+        }
+    }
+
     /// Encrypts serialisable `plaintext` using authenticated symmetric encryption.
     ///
     /// With authenticated encryption the recipient will be able to confirm that the message
@@ -371,6 +389,17 @@ impl SymmetricKey {
         self.encrypt_bytes(&serialise(plaintext)?)
     }
 
+    /// Encrypts bytestring `plaintext` using initialisation vector `iv`.
+    ///
+    /// Returns ciphertext in case of success.
+    pub fn encrypt_bytes_iv(&self, plaintext: &[u8], iv: Iv) -> Result<Vec<u8>, Error> {
+        Ok(secretbox::seal(
+            plaintext,
+            &secretbox::Nonce(iv),
+            &self.encrypt,
+        ))
+    }
+
     /// Encrypts bytestring `plaintext` using authenticated symmetric encryption.
     ///
     /// With authenticated encryption the recipient will be able to confirm that the message
@@ -380,7 +409,7 @@ impl SymmetricKey {
     /// Can return an `Error` in case of a serialisation error.
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
         let nonce = secretbox::gen_nonce();
-        let ciphertext = secretbox::seal(plaintext, &nonce, &self.encrypt);
+        let ciphertext = self.encrypt_bytes_iv(plaintext, nonce.0)?;
         Ok(serialise(&CipherText {
             nonce: nonce.0,
             ciphertext,
@@ -402,7 +431,20 @@ impl SymmetricKey {
         Ok(deserialise(&self.decrypt_bytes(ciphertext)?)?)
     }
 
+    /// Decrypts bytestring `ciphertext` using a provided initialisation vector `iv`.
+    ///
+    /// Returns plaintext in case of success.
+    /// Can return `Error` if the ciphertext is not valid or if it can not be decrypted.
+    pub fn decrypt_bytes_iv(&self, ciphertext: &[u8], iv: Iv) -> Result<Vec<u8>, Error> {
+        Ok(secretbox::open(
+            &ciphertext,
+            &secretbox::Nonce(iv),
+            &self.encrypt,
+        )?)
+    }
+
     /// Decrypts bytestring `ciphertext` encrypted using authenticated symmetric encryption.
+    /// This function uses the baked-in nonce as an initialisation vector.
     ///
     /// With authenticated encryption we will be able to tell that the message hasn't been
     /// tampered with.
@@ -412,17 +454,33 @@ impl SymmetricKey {
     /// is not valid, or if it can not be decrypted.
     pub fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, Error> {
         let CipherText { nonce, ciphertext } = deserialise(ciphertext)?;
-        Ok(secretbox::open(
-            &ciphertext,
-            &secretbox::Nonce(nonce),
-            &self.encrypt,
-        )?)
+        self.decrypt_bytes_iv(&ciphertext, nonce)
     }
 }
 
 impl Default for SymmetricKey {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Serialize for SymmetricKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Serialize::serialize(&self.encrypt.0, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SymmetricKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(SymmetricKey::from_bytes(Deserialize::deserialize(
+            deserializer,
+        )?))
     }
 }
 
@@ -468,6 +526,7 @@ quick_error! {
 mod tests {
     use self::rand::{OsRng, Rng};
     use super::*;
+    use maidsafe_utilities::serialisation::{deserialise, serialise};
 
     #[test]
     fn anonymous_bytes_cipher() {
@@ -626,7 +685,7 @@ mod tests {
         let pk1 = sk1.public_keys();
         assert_eq!(
             &pk1.public_sign_key(),
-            &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
+            &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..PUBLIC_SIGN_KEY_SIZE]
         );
     }
 
@@ -642,6 +701,31 @@ mod tests {
 
         data.push(1);
         assert_ne!(h1, hash(&data));
+    }
+
+    #[test]
+    fn symmetric_serialise() {
+        let data = generate_random_bytes(50);
+
+        let sk = SymmetricKey::new();
+        let ciphertext = unwrap!(sk.encrypt_bytes(&data), "could not encrypt data");
+        let serialised_sk = unwrap!(serialise(&sk), "could not serialise key");
+
+        // Try to decrypt the ciphertext with an incorrect key
+        let sk = SymmetricKey::new();
+
+        match sk.decrypt_bytes(&ciphertext) {
+            Err(_) => (),
+            Ok(_) => panic!(
+                "Unexpected result: we're using a wrong key, it should have returned an error"
+            ),
+        }
+
+        // Deserialise key
+        let sk: SymmetricKey = unwrap!(deserialise(&serialised_sk), "could not deserialise key");
+        let plaintext = unwrap!(sk.decrypt_bytes(&ciphertext), "could not decrypt data");
+
+        assert_eq!(plaintext, data);
     }
 
     fn generate_random_bytes(length: usize) -> Vec<u8> {
