@@ -71,12 +71,46 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-/// Represents public signature key.
-pub type PublicSignKey = [u8; 32];
+const PUBLIC_ENCRYPT_KEY_BYTES: usize = box_::PUBLICKEYBYTES;
+const SECRET_ENCRYPT_KEY_BYTES: usize = box_::SECRETKEYBYTES;
+const PUBLIC_SIGN_KEY_BYTES: usize = sign::PUBLICKEYBYTES;
+const SECRET_SIGN_KEY_BYTES: usize = sign::SECRETKEYBYTES;
+const SHARED_SECRET_KEY_BYTES: usize = box_::PRECOMPUTEDKEYBYTES;
+const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
+const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
 
-/// Initialise random number generator for the key generation functions.
-pub fn init() -> Result<(), ()> {
-    crypto_impl::init()
+quick_error! {
+    /// This error is returned if encryption or decryption fails.
+    /// The encryption failure is rare and mostly connected to serialisation failures.
+    /// Decryption can fail because of invalid keys, invalid data, or deserialisation failures.
+    #[derive(Debug)]
+    pub enum Error {
+        /// Occurs when serialisation or deserialisation fails.
+        Serialisation(e: SerialisationError) {
+            display("error serialising or deserialising message: {}", e)
+            cause(e)
+            from()
+        }
+        /// Occurs when we can't decrypt a message or verify the signature.
+        DecryptVerify(_e: ()) {
+            display("error decrypting/verifying message")
+            from()
+        }
+        /// Occurs in case of an error during initialisation.
+        InitError(e: i32) {
+            display("error while initialising safe_crypto")
+            from()
+        }
+        /// Occurs when we fail to derive encryption key from password.
+        DeriveKey {
+            display("error deriving encryption key from password")
+        }
+    }
+}
+
+/// Initialise safe_crypto including the random number generator for the key generation functions.
+pub fn init() -> Result<(), Error> {
+    crypto_impl::init().map_err(|_| Error::InitError(-1))
 }
 
 /// Initialise the key generation functions with a custom random number generator `rng`.
@@ -92,92 +126,42 @@ pub fn hash(data: &[u8]) -> [u8; 32] {
     hashing_impl::sha3_256(data)
 }
 
-/// Represents a set of public keys, consisting of a public signature key and a public
-/// encryption key.
+/// The public key used encrypt data that can only be decrypted by the corresponding secret key,
+/// which is represented by `SecretEncryptKey`.
+/// Use `gen_encrypt_keypair()` to generate a public and secret key pair.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
-pub struct PublicKeys {
-    sign: sign::PublicKey,
+pub struct PublicEncryptKey {
     encrypt: box_::PublicKey,
 }
 
-/// Secret counterpart of the public key set, consisting of a secret signing key and
-/// a secret encryption key.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SecretKeys {
-    inner: Arc<SecretKeysInner>,
-    public: PublicKeys,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct SecretKeysInner {
-    sign: sign::SecretKey,
-    encrypt: box_::SecretKey,
-}
-
-/// Secret key for authenticated symmetric encryption.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SymmetricKey {
-    encrypt: Arc<secretbox::Key>,
-}
-
-/// Detached signature.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
-pub struct Signature {
-    signature: sign::Signature,
-}
-
-/// Precomputed shared secret key.
-/// Can be created from a pair of our secret key and the recipient's public key.
-/// As a result, we'll get the same key as the recipient with their secret key and
-/// our public key.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedSecretKey {
-    precomputed: Arc<box_::PrecomputedKey>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct CipherText {
-    nonce: [u8; box_::NONCEBYTES],
-    ciphertext: Vec<u8>,
-}
-
-impl PublicKeys {
-    /// Returns a public signing key.
-    #[cfg(feature = "mock")]
-    pub fn public_sign_key(&self) -> PublicSignKey {
-        // Pads the key to 32 bytes for mock-crypto
-        let mut full_len_key = [0; 32];
-        self.sign
-            .0
-            .iter()
-            .cloned()
-            .cycle()
-            .take(32)
-            .enumerate()
-            .for_each(|(i, v)| full_len_key[i] = v);
-        full_len_key
+impl PublicEncryptKey {
+    /// Construct public key from bytes. Useful when it was serialised before.
+    pub fn from_bytes(public_key: [u8; PUBLIC_ENCRYPT_KEY_BYTES]) -> Self {
+        Self {
+            encrypt: box_::PublicKey(public_key),
+        }
     }
 
-    /// Returns a public signing key.
-    #[cfg(not(feature = "mock"))]
-    pub fn public_sign_key(&self) -> PublicSignKey {
-        self.sign.0
+    /// Convert the `PublicEncryptKey` into the raw underlying bytes.
+    /// For anyone who wants to store the public key.
+    pub fn into_bytes(self) -> [u8; PUBLIC_ENCRYPT_KEY_BYTES] {
+        self.encrypt.0
     }
 
     /// Encrypts serialisable `plaintext` using anonymous encryption.
     ///
     /// Anonymous encryption will use an ephemeral public key, so the recipient won't
     /// be able to tell who sent the ciphertext.
-    /// If you wish to encrypt bytestring plaintext, use `encrypt_anonymous_bytes`.
+    /// If you wish to encrypt bytestring plaintext, use `anonymously_encrypt_bytes`.
     /// To use authenticated encryption, use `SharedSecretKey`.
     ///
     /// Returns ciphertext in case of success.
     /// Can return an `Error` in case of a serialisation error.
-    pub fn encrypt_anonymous<T>(&self, plaintext: &T) -> Result<Vec<u8>, Error>
+    pub fn anonymously_encrypt<T>(&self, plaintext: &T) -> Result<Vec<u8>, Error>
     where
         T: Serialize,
     {
-        Ok(self.encrypt_anonymous_bytes(&serialise(plaintext)?))
+        Ok(self.anonymously_encrypt_bytes(&serialise(plaintext)?))
     }
 
     /// Encrypts bytestring `plaintext` using anonymous encryption.
@@ -187,39 +171,43 @@ impl PublicKeys {
     /// To use authenticated encryption, use `SharedSecretKey`.
     ///
     /// Returns ciphertext in case of success.
-    pub fn encrypt_anonymous_bytes(&self, plaintext: &[u8]) -> Vec<u8> {
+    pub fn anonymously_encrypt_bytes(&self, plaintext: &[u8]) -> Vec<u8> {
         sealedbox::seal(plaintext, &self.encrypt)
-    }
-
-    /// Verifies the detached `signature`.
-    ///
-    /// Returns `true` if the signature is valid the `data` is verified.
-    pub fn verify_detached(&self, signature: &Signature, data: &[u8]) -> bool {
-        sign::verify_detached(&signature.signature, data, &self.sign)
     }
 }
 
-impl SecretKeys {
-    /// Generates a pair of secret and public key sets.
-    pub fn new() -> SecretKeys {
-        let (sign_pk, sign_sk) = sign::gen_keypair();
-        let (encrypt_pk, encrypt_sk) = box_::gen_keypair();
-        let public = PublicKeys {
-            sign: sign_pk,
-            encrypt: encrypt_pk,
-        };
-        SecretKeys {
-            public,
-            inner: Arc::new(SecretKeysInner {
-                sign: sign_sk,
-                encrypt: encrypt_sk,
+/// Reference counted secret encryption key used to decrypt data previously encrypted with
+/// `PublicEncryptKey`.
+/// Use `gen_encrypt_keypair()` to generate a public and secret key pair.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct SecretEncryptKey {
+    inner: Arc<SecretEncryptKeyInner>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct SecretEncryptKeyInner {
+    encrypt: box_::SecretKey,
+}
+
+impl SecretEncryptKey {
+    /// Construct secret key from given bytes. Useful when secret key was serialised before.
+    pub fn from_bytes(secret_key: [u8; SECRET_ENCRYPT_KEY_BYTES]) -> Self {
+        Self {
+            inner: Arc::new(SecretEncryptKeyInner {
+                encrypt: box_::SecretKey(secret_key),
             }),
         }
     }
 
-    /// Returns the public part of the secret key set.
-    pub fn public_keys(&self) -> &PublicKeys {
-        &self.public
+    /// Computes a shared secret from our secret key and the recipient's public key.
+    pub fn shared_secret(&self, their_pk: &PublicEncryptKey) -> SharedSecretKey {
+        let precomputed = Arc::new(box_::precompute(&their_pk.encrypt, &self.inner.encrypt));
+        SharedSecretKey { precomputed }
+    }
+
+    /// Get the inner secret key representation.
+    pub fn into_bytes(self) -> [u8; SECRET_ENCRYPT_KEY_BYTES] {
+        self.inner.encrypt.0
     }
 
     /// Decrypts serialised `ciphertext` encrypted using anonymous encryption.
@@ -230,11 +218,17 @@ impl SecretKeys {
     /// Returns deserialised type `T` in case of success.
     /// Can return `Error` in case of a deserialisation error, if the ciphertext is
     /// not valid, or if it can not be decrypted.
-    pub fn decrypt_anonymous<T>(&self, ciphertext: &[u8]) -> Result<T, Error>
+    pub fn anonymously_decrypt<T>(
+        &self,
+        ciphertext: &[u8],
+        my_pk: &PublicEncryptKey,
+    ) -> Result<T, Error>
     where
         T: Serialize + DeserializeOwned,
     {
-        Ok(deserialise(&self.decrypt_anonymous_bytes(ciphertext)?)?)
+        Ok(deserialise(
+            &self.anonymously_decrypt_bytes(ciphertext, my_pk)?,
+        )?)
     }
 
     /// Decrypts bytestring `ciphertext` encrypted using anonymous encryption.
@@ -244,12 +238,87 @@ impl SecretKeys {
     ///
     /// Returns plaintext in case of success.
     /// Can return `Error` if the ciphertext is not valid or if it can not be decrypted.
-    pub fn decrypt_anonymous_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn anonymously_decrypt_bytes(
+        &self,
+        ciphertext: &[u8],
+        my_pk: &PublicEncryptKey,
+    ) -> Result<Vec<u8>, Error> {
         Ok(sealedbox::open(
             ciphertext,
-            &self.public.encrypt,
+            &my_pk.encrypt,
             &self.inner.encrypt,
         )?)
+    }
+}
+
+/// Randomly generates a secret key and a corresponding public key.
+pub fn gen_encrypt_keypair() -> (PublicEncryptKey, SecretEncryptKey) {
+    let (encrypt_pk, encrypt_sk) = box_::gen_keypair();
+    let pub_enc_key = PublicEncryptKey {
+        encrypt: encrypt_pk,
+    };
+    let sec_enc_key = SecretEncryptKey {
+        inner: Arc::new(SecretEncryptKeyInner {
+            encrypt: encrypt_sk,
+        }),
+    };
+    (pub_enc_key, sec_enc_key)
+}
+
+/// Public signing key used to verify that the signature appended to a message was actually issued
+/// by the creator of the public key.
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+pub struct PublicSignKey {
+    sign: sign::PublicKey,
+}
+
+impl PublicSignKey {
+    /// Verifies the detached `signature`.
+    ///
+    /// Returns `true` if the signature is valid the `data` is verified.
+    pub fn verify_detached(&self, signature: &Signature, data: &[u8]) -> bool {
+        sign::verify_detached(&signature.signature, data, &self.sign)
+    }
+
+    /// Construct from bytes. Useful when it was serialised before.
+    pub fn from_bytes(public_key: [u8; PUBLIC_SIGN_KEY_BYTES]) -> Self {
+        Self {
+            sign: sign::PublicKey(public_key),
+        }
+    }
+
+    /// Convert the `PublicSignKey` into the raw underlying bytes.
+    /// For anyone who wants to store the public signing key.
+    pub fn into_bytes(self) -> [u8; PUBLIC_SIGN_KEY_BYTES] {
+        self.sign.0
+    }
+}
+
+/// Reference counted secret signing key used to verify signatures previously signed with
+/// `PublicSignKey`.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct SecretSignKey {
+    inner: Arc<SecretSignKeyInner>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct SecretSignKeyInner {
+    sign: sign::SecretKey,
+}
+
+impl SecretSignKey {
+    /// Construct from bytes. Useful when it was serialised before.
+    pub fn from_bytes(secret_key: [u8; SECRET_SIGN_KEY_BYTES]) -> Self {
+        Self {
+            inner: Arc::new(SecretSignKeyInner {
+                sign: sign::SecretKey(secret_key),
+            }),
+        }
+    }
+
+    /// Get the inner secret key representation.
+    pub fn into_bytes(self) -> [u8; SECRET_SIGN_KEY_BYTES] {
+        self.inner.sign.0
     }
 
     /// Produces the detached signature from the `data`.
@@ -260,21 +329,42 @@ impl SecretKeys {
             signature: sign::sign_detached(data, &self.inner.sign),
         }
     }
-
-    /// Computes a shared secret from our secret key and the recipient's public key.
-    pub fn shared_secret(&self, their_pk: &PublicKeys) -> SharedSecretKey {
-        let precomputed = Arc::new(box_::precompute(&their_pk.encrypt, &self.inner.encrypt));
-        SharedSecretKey { precomputed }
-    }
 }
 
-impl Default for SecretKeys {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Construct random public and secret signing key pair.
+pub fn gen_sign_keypair() -> (PublicSignKey, SecretSignKey) {
+    let (sign_pk, sign_sk) = sign::gen_keypair();
+    let pub_sign_key = PublicSignKey { sign: sign_pk };
+    let sec_sign_key = SecretSignKey {
+        inner: Arc::new(SecretSignKeyInner { sign: sign_sk }),
+    };
+    (pub_sign_key, sec_sign_key)
+}
+
+/// Precomputed shared secret key.
+///
+/// Can be created from a pair of our secret key and the recipient's public key.
+/// As a result, we'll get the same key as the recipient with their secret key and
+/// our public key.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct SharedSecretKey {
+    precomputed: Arc<box_::PrecomputedKey>,
 }
 
 impl SharedSecretKey {
+    /// Construct shared secret key from bytes. Useful when it was serialised before.
+    pub fn from_bytes(key: [u8; SHARED_SECRET_KEY_BYTES]) -> Self {
+        Self {
+            precomputed: Arc::new(box_::PrecomputedKey(key)),
+        }
+    }
+
+    /// Convert the `SharedSecretKey` into the raw underlying bytes.
+    /// For anyone who wants to store the shared secret key
+    pub fn into_bytes(self) -> [u8; SHARED_SECRET_KEY_BYTES] {
+        self.precomputed.0
+    }
+
     /// Encrypts bytestring `plaintext` using authenticated encryption.
     ///
     /// With authenticated encryption the recipient will be able to verify the authenticity
@@ -343,11 +433,30 @@ impl SharedSecretKey {
     }
 }
 
+/// Detached signature.
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+pub struct Signature {
+    signature: sign::Signature,
+}
+
 impl Signature {
-    /// Return the signature as an array of bytes
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.signature.0
+    /// Construct the signature from bytes. Useful when it was serialised before.
+    pub fn from_bytes(key: [u8; SIGNATURE_BYTES]) -> Self {
+        Self {
+            signature: sign::Signature(key),
+        }
     }
+
+    /// Return the signature as an array of bytes
+    pub fn into_bytes(self) -> [u8; SIGNATURE_BYTES] {
+        self.signature.0
+    }
+}
+
+/// Secret key for authenticated symmetric encryption.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct SymmetricKey {
+    encrypt: Arc<secretbox::Key>,
 }
 
 impl SymmetricKey {
@@ -357,6 +466,19 @@ impl SymmetricKey {
         Self {
             encrypt: Arc::new(sk),
         }
+    }
+
+    /// Create a symmetric key from bytes. Useful when it has been serialised.
+    pub fn from_bytes(key: [u8; SYMMETRIC_KEY_BYTES]) -> Self {
+        Self {
+            encrypt: Arc::new(secretbox::Key(key)),
+        }
+    }
+
+    /// Convert the `SharedSecretKey` into the raw underlying bytes.
+    /// For anyone who wants to store the symmetric key
+    pub fn into_bytes(self) -> [u8; SYMMETRIC_KEY_BYTES] {
+        self.encrypt.0
     }
 
     /// Encrypts serialisable `plaintext` using authenticated symmetric encryption.
@@ -426,41 +548,39 @@ impl Default for SymmetricKey {
     }
 }
 
-impl fmt::Display for PublicKeys {
+#[derive(Serialize, Deserialize)]
+struct CipherText {
+    nonce: [u8; box_::NONCEBYTES],
+    ciphertext: Vec<u8>,
+}
+
+impl fmt::Display for PublicEncryptKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for b in &self.sign[..] {
-            write!(f, "{:02x}", b)?;
-        }
-        for b in &self.encrypt[..] {
-            write!(f, "{:02x}", b)?;
-        }
-        Ok(())
+        write!(
+            f,
+            "{:02x}{:02x}{:02x}..",
+            &self.encrypt.0[0], &self.encrypt.0[1], &self.encrypt.0[2]
+        )
     }
 }
 
-quick_error! {
-    /// This error is returned if encryption or decryption fail.
-    /// The encryption failure is rare and mostly connected to serialisation failures.
-    /// Decryption can fail because of invalid keys, invalid data, or deserialisation failures.
-    #[derive(Debug)]
-    pub enum Error {
-        /// Occurs when serialisation or deserialisation fails.
-        Serialisation(e: SerialisationError) {
-            description("error serialising or deserialising message")
-            display("error serialising or deserialising message: {}", e)
-            cause(e)
-            from()
-        }
-        /// Occurs when we can't decrypt a message or verify the signature.
-        DecryptVerify(_e: ()) {
-            description("error decrypting/verifying message")
-            from()
-        }
-        /// Occurs in case of an error during initialisation.
-        InitError(e: i32) {
-            description("error while initialising random generator")
-            from()
-        }
+impl fmt::Display for PublicSignKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:02x}{:02x}{:02x}..",
+            &self.sign.0[0], &self.sign.0[1], &self.sign.0[2]
+        )
+    }
+}
+
+impl fmt::Display for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:02x}{:02x}{:02x}..",
+            &self.signature.0[0], &self.signature.0[1], &self.signature.0[2]
+        )
     }
 }
 
@@ -472,14 +592,13 @@ mod tests {
     #[test]
     fn anonymous_bytes_cipher() {
         let data = generate_random_bytes(50);
-        let sk = SecretKeys::new();
-        let sk2 = SecretKeys::new();
-        let pk = sk.public_keys();
+        let (pk, sk) = gen_encrypt_keypair();
+        let (pk2, sk2) = gen_encrypt_keypair();
 
-        let ciphertext = pk.encrypt_anonymous_bytes(&data);
+        let ciphertext = pk.anonymously_encrypt_bytes(&data);
         assert_ne!(&ciphertext, &data);
 
-        let error_res = sk.decrypt_anonymous_bytes(&data);
+        let error_res = sk.anonymously_decrypt_bytes(&data, &pk);
         match error_res {
             Err(_e) => (),
             Ok(_) => {
@@ -487,7 +606,7 @@ mod tests {
             }
         }
 
-        let error_res: Result<_, _> = sk2.decrypt_anonymous_bytes(&ciphertext);
+        let error_res: Result<_, _> = sk2.anonymously_decrypt_bytes(&ciphertext, &pk2);
         match error_res {
             Err(_e) => (),
             Ok(_) => {
@@ -496,7 +615,7 @@ mod tests {
         }
 
         let plaintext: Vec<u8> = unwrap!(
-            sk.decrypt_anonymous_bytes(&ciphertext),
+            sk.anonymously_decrypt_bytes(&ciphertext, &pk),
             "couldn't decrypt ciphertext"
         );
         assert_eq!(&plaintext, &data);
@@ -507,14 +626,13 @@ mod tests {
         let mut os_rng = unwrap!(OsRng::new());
         let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
 
-        let sk = SecretKeys::new();
-        let pk = sk.public_keys();
+        let (pk, sk) = gen_encrypt_keypair();
 
-        let ciphertext = unwrap!(pk.encrypt_anonymous(&data), "couldn't encrypt base data");
+        let ciphertext = unwrap!(pk.anonymously_encrypt(&data), "couldn't encrypt base data");
         assert!(!ciphertext.is_empty());
 
         let plaintext: Vec<u64> = unwrap!(
-            sk.decrypt_anonymous(&ciphertext),
+            sk.anonymously_decrypt(&ciphertext, &pk),
             "couldn't decrypt ciphertext"
         );
         assert_eq!(plaintext, data);
@@ -524,11 +642,8 @@ mod tests {
     fn authenticated_cipher() {
         let data = generate_random_bytes(50);
 
-        let sk1 = SecretKeys::new();
-        let pk1 = sk1.public_keys();
-
-        let sk2 = SecretKeys::new();
-        let pk2 = sk2.public_keys();
+        let (pk1, sk1) = gen_encrypt_keypair();
+        let (pk2, sk2) = gen_encrypt_keypair();
 
         let shared_sk1 = sk1.shared_secret(&pk2);
         let shared_sk2 = sk2.shared_secret(&pk1);
@@ -552,7 +667,7 @@ mod tests {
         }
 
         // Trying with a wrong key
-        let sk3 = SecretKeys::new();
+        let (_, sk3) = gen_encrypt_keypair();
         let shared_sk3 = sk3.shared_secret(&pk2);
 
         let error_res = shared_sk3.decrypt_bytes(&ciphertext);
@@ -569,11 +684,8 @@ mod tests {
         let data1 = generate_random_bytes(50);
         let data2 = generate_random_bytes(50);
 
-        let sk1 = SecretKeys::new();
-        let pk1 = sk1.public_keys();
-
-        let sk2 = SecretKeys::new();
-        let pk2 = sk2.public_keys();
+        let (pk1, sk1) = gen_sign_keypair();
+        let (pk2, sk2) = gen_sign_keypair();
 
         let sig1 = sk1.sign_detached(&data1);
         let sig2 = sk2.sign_detached(&data2);
@@ -617,17 +729,6 @@ mod tests {
         let plaintext: Vec<u64> = unwrap!(sk2.decrypt(&ciphertext), "could not decrypt data");
 
         assert_eq!(plaintext, data);
-    }
-
-    #[cfg(feature = "mock")]
-    #[test]
-    fn name() {
-        let sk1 = SecretKeys::new();
-        let pk1 = sk1.public_keys();
-        assert_eq!(
-            &pk1.public_sign_key(),
-            &[pk1.sign.0, pk1.sign.0, pk1.sign.0, pk1.sign.0].concat()[0..32]
-        );
     }
 
     #[test]
