@@ -79,7 +79,7 @@ pub(crate) mod crypto_impl {
             }
 
             /// Mock signing secret key.
-            #[derive(Clone, Debug, Eq, PartialEq)]
+            #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
             pub(crate) struct SecretKey(pub(crate) [u8; SECRETKEYBYTES]);
 
             /// Mock signature.
@@ -128,6 +128,8 @@ pub(crate) mod crypto_impl {
             pub(crate) const SECRETKEYBYTES: usize = 8;
             /// Number of bytes in a `Nonce`.
             pub(crate) const NONCEBYTES: usize = 4;
+            /// Number of bytes in a `SharedSecretKey`.
+            pub(crate) const PRECOMPUTEDKEYBYTES: usize = 8;
 
             /// Mock public key for asymmetric encryption/decryption.
             #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
@@ -142,14 +144,14 @@ pub(crate) mod crypto_impl {
             }
 
             /// Mock secret key for asymmetric encryption/decryption.
-            #[derive(Clone, Debug, Eq, PartialEq)]
+            #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
             pub(crate) struct SecretKey(pub(crate) [u8; SECRETKEYBYTES]);
 
             /// Mock nonce for asymmetric encryption/decryption.
             #[derive(Serialize, Deserialize)]
             pub(crate) struct Nonce(pub(crate) [u8; NONCEBYTES]);
 
-            #[derive(Clone, Debug, Eq, PartialEq)]
+            #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
             pub(crate) struct PrecomputedKey(pub(crate) [u8; SECRETKEYBYTES]);
 
             /// Generate mock public and corresponding secret key.
