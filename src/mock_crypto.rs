@@ -67,8 +67,9 @@ pub(crate) mod crypto_impl {
             pub(crate) const SIGNATUREBYTES: usize = 8;
 
             /// Mock signing public key.
-            #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
-                     Serialize)]
+            #[derive(
+                Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+            )]
             pub(crate) struct PublicKey(pub(crate) [u8; PUBLICKEYBYTES]);
 
             impl Index<RangeFull> for PublicKey {
@@ -83,8 +84,9 @@ pub(crate) mod crypto_impl {
             pub(crate) struct SecretKey(pub(crate) [u8; SECRETKEYBYTES]);
 
             /// Mock signature.
-            #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, Serialize, PartialEq,
-                     PartialOrd)]
+            #[derive(
+                Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, Serialize, PartialEq, PartialOrd,
+            )]
             pub(crate) struct Signature(pub(crate) [u8; SIGNATUREBYTES]);
 
             impl AsRef<[u8]> for Signature {
@@ -132,8 +134,9 @@ pub(crate) mod crypto_impl {
             pub(crate) const PRECOMPUTEDKEYBYTES: usize = 8;
 
             /// Mock public key for asymmetric encryption/decryption.
-            #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
-                     Serialize)]
+            #[derive(
+                Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+            )]
             pub(crate) struct PublicKey(pub(crate) [u8; PUBLICKEYBYTES]);
 
             impl Index<RangeFull> for PublicKey {
@@ -250,8 +253,9 @@ pub(crate) mod crypto_impl {
             pub(crate) const NONCEBYTES: usize = 4;
 
             /// Mock secret key for symmetric encryption/decryption.
-            #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
-                     Serialize)]
+            #[derive(
+                Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+            )]
             pub(crate) struct Key(pub(crate) [u8; KEYBYTES]);
 
             /// Mock nonce for symmetric encryption/decryption.
