@@ -162,7 +162,7 @@ pub fn hash(data: &[u8]) -> [u8; 32] {
 /// The public key used encrypt data that can only be decrypted by the corresponding secret key,
 /// which is represented by `SecretEncryptKey`.
 /// Use `gen_encrypt_keypair()` to generate a public and secret key pair.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct PublicEncryptKey {
     encrypt: box_::PublicKey,
 }
@@ -300,7 +300,7 @@ pub fn gen_encrypt_keypair() -> (PublicEncryptKey, SecretEncryptKey) {
 
 /// Public signing key used to verify that the signature appended to a message was actually issued
 /// by the creator of the public key.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct PublicSignKey {
     sign: sign::PublicKey,
 }
@@ -467,7 +467,7 @@ impl SharedSecretKey {
 }
 
 /// Detached signature.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct Signature {
     signature: sign::Signature,
 }
