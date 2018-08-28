@@ -97,13 +97,20 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-const PUBLIC_ENCRYPT_KEY_BYTES: usize = box_::PUBLICKEYBYTES;
-const SECRET_ENCRYPT_KEY_BYTES: usize = box_::SECRETKEYBYTES;
-const PUBLIC_SIGN_KEY_BYTES: usize = sign::PUBLICKEYBYTES;
-const SECRET_SIGN_KEY_BYTES: usize = sign::SECRETKEYBYTES;
-const SHARED_SECRET_KEY_BYTES: usize = box_::PRECOMPUTEDKEYBYTES;
-const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
-const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
+/// Public encryption key length in bytes.
+pub const PUBLIC_ENCRYPT_KEY_BYTES: usize = box_::PUBLICKEYBYTES;
+/// Secret encryption key length in bytes.
+pub const SECRET_ENCRYPT_KEY_BYTES: usize = box_::SECRETKEYBYTES;
+/// Public signing key length in bytes.
+pub const PUBLIC_SIGN_KEY_BYTES: usize = sign::PUBLICKEYBYTES;
+/// Secret signing key length in bytes.
+pub const SECRET_SIGN_KEY_BYTES: usize = sign::SECRETKEYBYTES;
+/// Shared secret key length in bytes.
+pub const SHARED_SECRET_KEY_BYTES: usize = box_::PRECOMPUTEDKEYBYTES;
+/// Cryptographic signature length in bytes.
+pub const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
+/// Symmetric key length in bytes.
+pub const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
 
 quick_error! {
     /// This error is returned if encryption or decryption fails.
