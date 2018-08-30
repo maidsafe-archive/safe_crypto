@@ -55,16 +55,21 @@ pub(crate) mod crypto_impl {
         /// Mock signing.
         pub(crate) mod sign {
             use super::super::with_rng;
-            use mock_crypto::hash64;
+            use mock_crypto::hash512;
             use rand::Rng;
+            use serde::de::{SeqAccess, Visitor};
+            use serde::ser::SerializeTuple;
+            use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+            use std::marker::PhantomData;
             use std::ops::{Index, RangeFull};
+            use std::{cmp, fmt, hash};
 
             /// Number of bytes in a `PublicKey`.
-            pub(crate) const PUBLICKEYBYTES: usize = 8;
+            pub(crate) const PUBLICKEYBYTES: usize = 32;
             /// Number of bytes in a `SecretKey`.
-            pub(crate) const SECRETKEYBYTES: usize = 8;
+            pub(crate) const SECRETKEYBYTES: usize = 64;
             /// Number of bytes in a `Signature`.
-            pub(crate) const SIGNATUREBYTES: usize = 8;
+            pub(crate) const SIGNATUREBYTES: usize = 64;
 
             /// Mock signing public key.
             #[derive(
@@ -80,14 +85,138 @@ pub(crate) mod crypto_impl {
             }
 
             /// Mock signing secret key.
-            #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+            #[derive(Clone)]
             pub(crate) struct SecretKey(pub(crate) [u8; SECRETKEYBYTES]);
 
             /// Mock signature.
-            #[derive(
-                Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, Serialize, PartialEq, PartialOrd,
-            )]
+            #[derive(Clone, Copy)]
             pub(crate) struct Signature(pub(crate) [u8; SIGNATUREBYTES]);
+
+            impl hash::Hash for Signature {
+                fn hash<H: hash::Hasher>(&self, state: &mut H) {
+                    hash::Hash::hash(&self.0[..], state)
+                }
+            }
+
+            impl Ord for Signature {
+                #[inline]
+                fn cmp(&self, other: &Signature) -> cmp::Ordering {
+                    Ord::cmp(&&self.0[..], &&other.0[..])
+                }
+            }
+
+            impl PartialOrd for Signature {
+                #[inline]
+                fn partial_cmp(&self, other: &Signature) -> Option<cmp::Ordering> {
+                    PartialOrd::partial_cmp(&&self.0[..], &&other.0[..])
+                }
+
+                #[inline]
+                fn lt(&self, other: &Signature) -> bool {
+                    PartialOrd::lt(&&self.0[..], &&other.0[..])
+                }
+
+                #[inline]
+                fn le(&self, other: &Signature) -> bool {
+                    PartialOrd::le(&&self.0[..], &&other.0[..])
+                }
+
+                #[inline]
+                fn ge(&self, other: &Signature) -> bool {
+                    PartialOrd::ge(&&self.0[..], &&other.0[..])
+                }
+
+                #[inline]
+                fn gt(&self, other: &Signature) -> bool {
+                    PartialOrd::gt(&&self.0[..], &&other.0[..])
+                }
+            }
+
+            struct ArrayVisitor<A> {
+                marker: PhantomData<A>,
+            }
+
+            impl<A> ArrayVisitor<A> {
+                fn new() -> Self {
+                    ArrayVisitor {
+                        marker: PhantomData,
+                    }
+                }
+            }
+
+            macro_rules! impl_common_key_traits {
+                ($type:tt, $inner_size:ident) => {
+                    impl fmt::Debug for $type {
+                        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                            fmt::Debug::fmt(&&self.0[..], f)
+                        }
+                    }
+
+                    impl PartialEq for $type {
+                        #[inline]
+                        fn eq(&self, other: &$type) -> bool {
+                            self.0[..] == other.0[..]
+                        }
+                    }
+                    impl Eq for $type {}
+
+                    impl Serialize for $type {
+                        #[inline]
+                        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                        where
+                            S: Serializer,
+                        {
+                            let mut seq = serializer.serialize_tuple($inner_size)?;
+                            for e in self.0.iter() {
+                                seq.serialize_element(e)?;
+                            }
+                            seq.end()
+                        }
+                    }
+
+                    impl<'de> Visitor<'de> for ArrayVisitor<$type> {
+                        type Value = $type;
+
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            formatter.write_str(&format!("an array of length {}", $inner_size))
+                        }
+
+                        #[inline]
+                        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                        where
+                            A: SeqAccess<'de>,
+                        {
+                            let mut key = [0u8; $inner_size];
+                            for elem in key.iter_mut() {
+                                *elem = match seq.next_element()? {
+                                    Some(val) => val,
+                                    None => {
+                                        return Err(serde::de::Error::invalid_length(
+                                            $inner_size,
+                                            &self,
+                                        ))
+                                    }
+                                };
+                            }
+
+                            Ok($type(key))
+                        }
+                    }
+
+                    impl<'de> Deserialize<'de> for $type {
+                        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+                        where
+                            D: Deserializer<'de>,
+                        {
+                            deserializer
+                                .deserialize_tuple($inner_size, ArrayVisitor::<$type>::new())
+                        }
+                    }
+                };
+            }
+
+            impl_common_key_traits!(SecretKey, SECRETKEYBYTES);
+            impl_common_key_traits!(Signature, SIGNATUREBYTES);
 
             impl AsRef<[u8]> for Signature {
                 fn as_ref(&self) -> &[u8] {
@@ -98,23 +227,26 @@ pub(crate) mod crypto_impl {
             /// Generate mock public and corresponding secret key.
             pub(crate) fn gen_keypair() -> (PublicKey, SecretKey) {
                 with_rng(|rng| {
-                    let value = rng.gen();
-                    (PublicKey(value), SecretKey(value))
+                    let pub_key: [u8; 32] = rng.gen();
+                    let mut sec_key = [0u8; 64];
+                    sec_key[0..32].clone_from_slice(&pub_key); // simply get 64 byte array
+                    (PublicKey(pub_key), SecretKey(sec_key))
                 })
             }
 
             /// Sign a message using the mock secret key.
             pub(crate) fn sign_detached(m: &[u8], sk: &SecretKey) -> Signature {
                 let mut temp = m.to_vec();
-                temp.extend(&sk.0);
-                Signature(hash64(&temp))
+                temp.extend_from_slice(&sk.0);
+                Signature(hash512(&temp))
             }
 
             /// Verify the mock signature against the message and the signer's mock public key.
             pub(crate) fn verify_detached(signature: &Signature, m: &[u8], pk: &PublicKey) -> bool {
                 let mut temp = m.to_vec();
                 temp.extend(&pk.0);
-                *signature == Signature(hash64(&temp))
+                temp.extend(&[0; 32]);
+                *signature == Signature(hash512(&temp))
             }
         }
 
@@ -125,13 +257,13 @@ pub(crate) mod crypto_impl {
             use std::ops::{Index, RangeFull};
 
             /// Number of bytes in a `PublicKey`.
-            pub(crate) const PUBLICKEYBYTES: usize = 8;
+            pub(crate) const PUBLICKEYBYTES: usize = 32;
             /// Number of bytes in a `SecretKey`.
-            pub(crate) const SECRETKEYBYTES: usize = 8;
+            pub(crate) const SECRETKEYBYTES: usize = 32;
             /// Number of bytes in a `Nonce`.
-            pub(crate) const NONCEBYTES: usize = 4;
+            pub(crate) const NONCEBYTES: usize = 24;
             /// Number of bytes in a `SharedSecretKey`.
-            pub(crate) const PRECOMPUTEDKEYBYTES: usize = 8;
+            pub(crate) const PRECOMPUTEDKEYBYTES: usize = 32;
 
             /// Mock public key for asymmetric encryption/decryption.
             #[derive(
@@ -248,9 +380,9 @@ pub(crate) mod crypto_impl {
             use rand::Rng;
 
             /// Number of bytes in a `Key`.
-            pub(crate) const KEYBYTES: usize = 8;
+            pub(crate) const KEYBYTES: usize = 32;
             /// Number of bytes in a `Nonce`.
-            pub(crate) const NONCEBYTES: usize = 4;
+            pub(crate) const NONCEBYTES: usize = 24;
 
             /// Mock secret key for symmetric encryption/decryption.
             #[derive(
@@ -325,6 +457,12 @@ fn hash64(data: &[u8]) -> [u8; 8] {
         (hash >> 8) as u8,
         (hash) as u8,
     ]
+}
+
+fn hash512(data: &[u8]) -> [u8; 64] {
+    let mut hash = [0u8; 64];
+    hash[56..].clone_from_slice(&hash64(data));
+    hash
 }
 
 #[cfg(test)]
