@@ -36,7 +36,8 @@ script:
       (
         set -x;
         cargo fmt -- --check &&
-        cargo clippy --verbose --all-targets
+        cargo clippy --verbose --all-targets &&
+        cargo clippy --verbose --all-targets --features mock
       );
     fi
 before_cache:
