@@ -97,13 +97,20 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-const PUBLIC_ENCRYPT_KEY_BYTES: usize = box_::PUBLICKEYBYTES;
-const SECRET_ENCRYPT_KEY_BYTES: usize = box_::SECRETKEYBYTES;
-const PUBLIC_SIGN_KEY_BYTES: usize = sign::PUBLICKEYBYTES;
-const SECRET_SIGN_KEY_BYTES: usize = sign::SECRETKEYBYTES;
-const SHARED_SECRET_KEY_BYTES: usize = box_::PRECOMPUTEDKEYBYTES;
-const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
-const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
+/// Public encryption key length in bytes.
+pub const PUBLIC_ENCRYPT_KEY_BYTES: usize = box_::PUBLICKEYBYTES;
+/// Secret encryption key length in bytes.
+pub const SECRET_ENCRYPT_KEY_BYTES: usize = box_::SECRETKEYBYTES;
+/// Public signing key length in bytes.
+pub const PUBLIC_SIGN_KEY_BYTES: usize = sign::PUBLICKEYBYTES;
+/// Secret signing key length in bytes.
+pub const SECRET_SIGN_KEY_BYTES: usize = sign::SECRETKEYBYTES;
+/// Shared secret key length in bytes.
+pub const SHARED_SECRET_KEY_BYTES: usize = box_::PRECOMPUTEDKEYBYTES;
+/// Cryptographic signature length in bytes.
+pub const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
+/// Symmetric key length in bytes.
+pub const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
 
 quick_error! {
     /// This error is returned if encryption or decryption fails.
@@ -155,7 +162,7 @@ pub fn hash(data: &[u8]) -> [u8; 32] {
 /// The public key used encrypt data that can only be decrypted by the corresponding secret key,
 /// which is represented by `SecretEncryptKey`.
 /// Use `gen_encrypt_keypair()` to generate a public and secret key pair.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct PublicEncryptKey {
     encrypt: box_::PublicKey,
 }
@@ -293,7 +300,7 @@ pub fn gen_encrypt_keypair() -> (PublicEncryptKey, SecretEncryptKey) {
 
 /// Public signing key used to verify that the signature appended to a message was actually issued
 /// by the creator of the public key.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct PublicSignKey {
     sign: sign::PublicKey,
 }
@@ -460,7 +467,7 @@ impl SharedSecretKey {
 }
 
 /// Detached signature.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy)]
 pub struct Signature {
     signature: sign::Signature,
 }
