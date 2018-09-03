@@ -1,5 +1,10 @@
 # safe_crypto - Change Log
 
+## [0.4.0]
+- Upgrade unwrap version to 1.2.0.
+- Expose constants of encryption and signing key sizes.
+- Implement `Copy` trait for `Signature`, `PublicEncryptKey` and `PublicSignKey`.
+
 ## [0.3.0]
 - Use rust 1.28.0 stable / 2018-07-07 nightly
 - rustfmt 0.99.2 and clippy-0.0.212
