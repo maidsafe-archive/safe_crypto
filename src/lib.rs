@@ -112,7 +112,7 @@ pub const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
 /// Symmetric key length in bytes.
 pub const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
 /// Nonce length in bytes.
-pub const NONCE_BYTES: usize = box_::NONCEBYTES;
+pub const NONCE_BYTES: usize = secretbox::NONCEBYTES;
 /// Hash length in bytes.
 pub const HASH_BYTES: usize = 32;
 
@@ -629,7 +629,7 @@ impl Nonce {
         }
     }
 
-    /// Convert the `SymmetricNonce` into the raw underlying bytes.
+    /// Convert the `Nonce` into the raw underlying bytes.
     /// For anyone who wants to store the nonce.
     pub fn into_bytes(self) -> [u8; NONCE_BYTES] {
         self.nonce.0
