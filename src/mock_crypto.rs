@@ -311,8 +311,7 @@ pub(crate) mod crypto_impl {
                 PrecomputedKey(shared_secret)
             }
 
-            /// Perform mock encryption of the given message using the shared key
-            /// and nonce.
+            /// Perform mock encryption of the given message using the shared key and nonce.
             pub(crate) fn seal_precomputed(
                 m: &[u8],
                 nonce: &Nonce,
@@ -391,7 +390,7 @@ pub(crate) mod crypto_impl {
             pub(crate) struct Key(pub(crate) [u8; KEYBYTES]);
 
             /// Mock nonce for symmetric encryption/decryption.
-            #[derive(Serialize, Deserialize)]
+            #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
             pub(crate) struct Nonce(pub(crate) [u8; NONCEBYTES]);
 
             /// Generate mock public and corresponding secret key.
