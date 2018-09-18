@@ -123,6 +123,8 @@ pub const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
 pub const NONCE_BYTES: usize = secretbox::NONCEBYTES;
 /// Hash length in bytes.
 pub const HASH_BYTES: usize = 32;
+/// Seed length in bytes.
+pub const SEED_BYTES: usize = sign::SEEDBYTES;
 
 quick_error! {
     /// This error is returned if encryption or decryption fails.
@@ -211,6 +213,26 @@ pub fn derive_key_from_pw(
     let params =
         ScryptParams::new(work_factor.unwrap_or(19), 8, 1).map_err(|_| Error::DeriveKey)?;
     derive_impl::scrypt(password, salt, &params, output).map_err(|_| Error::DeriveKey)
+}
+
+/// Seed structure used to generate sign and encrypt keypairs deterministically.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct Seed {
+    seed: sign::Seed,
+}
+
+impl Seed {
+    /// Create a seed from bytes.
+    pub fn from_bytes(seed: [u8; SEED_BYTES]) -> Self {
+        Self {
+            seed: sign::Seed(seed),
+        }
+    }
+
+    /// Convert the `Seed` into the raw underlying bytes.
+    pub fn into_bytes(self) -> [u8; SEED_BYTES] {
+        self.seed.0
+    }
 }
 
 /// The public key used encrypt data that can only be decrypted by the corresponding secret key,
@@ -421,6 +443,16 @@ impl SecretSignKey {
 /// Construct random public and secret signing key pair.
 pub fn gen_sign_keypair() -> (PublicSignKey, SecretSignKey) {
     let (sign_pk, sign_sk) = sign::gen_keypair();
+    let pub_sign_key = PublicSignKey { sign: sign_pk };
+    let sec_sign_key = SecretSignKey {
+        inner: Arc::new(SecretSignKeyInner { sign: sign_sk }),
+    };
+    (pub_sign_key, sec_sign_key)
+}
+
+/// Construct random public and secret signing key pair from a seed.
+pub fn gen_sign_keypair_from_seed(seed: &Seed) -> (PublicSignKey, SecretSignKey) {
+    let (sign_pk, sign_sk) = sign::keypair_from_seed(&seed.seed);
     let pub_sign_key = PublicSignKey { sign: sign_pk };
     let sec_sign_key = SecretSignKey {
         inner: Arc::new(SecretSignKeyInner { sign: sign_sk }),
@@ -847,6 +879,34 @@ mod tests {
 
     // Test encryption and decryption using a symmetric key.
     #[test]
+    fn signing_seed() {
+        let data1 = generate_random_bytes(50);
+        let data2 = generate_random_bytes(50);
+
+        let mut seed_bytes = [0; SEED_BYTES];
+        seed_bytes.copy_from_slice(&generate_random_bytes(SEED_BYTES));
+        let seed = Seed::from_bytes(seed_bytes);
+
+        let (pk1, sk1) = gen_sign_keypair_from_seed(&seed);
+        let (pk2, sk2) = gen_sign_keypair_from_seed(&seed);
+
+        assert_eq!(pk1, pk2);
+        assert_eq!(sk1, sk2);
+
+        let sig1 = sk1.sign_detached(&data1);
+        let sig2 = sk2.sign_detached(&data2);
+
+        assert!(pk1.verify_detached(&sig1, &data1));
+        assert!(pk2.verify_detached(&sig2, &data2));
+
+        let mut seed_bytes = [0; SEED_BYTES];
+        seed_bytes.copy_from_slice(&generate_random_bytes(SEED_BYTES));
+        let seed2 = Seed::from_bytes(seed_bytes);
+
+        assert_ne!(seed, seed2);
+    }
+
+    #[test]
     fn symmetric() {
         let data = generate_random_bytes(50);
         let nonce = Nonce::new();
@@ -902,10 +962,9 @@ mod tests {
     fn generate_random_bytes(length: usize) -> Vec<u8> {
         let mut os_rng = unwrap!(OsRng::new());
         os_rng
-            .gen_iter::<char>()
-            .filter(|c| *c != '\u{0}')
+            .gen_iter::<u8>()
+            .filter(|b| *b != 0)
             .take(length)
-            .collect::<String>()
-            .into_bytes()
+            .collect()
     }
 }

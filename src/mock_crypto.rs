@@ -88,6 +88,8 @@ pub(crate) mod crypto_impl {
             pub(crate) const SECRETKEYBYTES: usize = 64;
             /// Number of bytes in a `Signature`.
             pub(crate) const SIGNATUREBYTES: usize = 64;
+            /// Number of bytes in a `Seed`.
+            pub(crate) const SEEDBYTES: usize = 32;
 
             /// Mock signing public key.
             #[derive(
@@ -250,6 +252,18 @@ pub(crate) mod crypto_impl {
                     sec_key[0..32].clone_from_slice(&pub_key); // simply get 64 byte array
                     (PublicKey(pub_key), SecretKey(sec_key))
                 })
+            }
+
+            /// Mock seed.
+            #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+            pub(crate) struct Seed(pub(crate) [u8; SEEDBYTES]);
+
+            /// Generate mock public and corresponding secret key using a seed.
+            pub(crate) fn keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
+                let pub_key = seed.0;
+                let mut sec_key = [0u8; 64];
+                sec_key[0..32].clone_from_slice(&seed.0); // simply get 64 byte array
+                (PublicKey(pub_key), SecretKey(sec_key))
             }
 
             /// Sign a message using the mock secret key.
