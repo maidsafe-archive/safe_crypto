@@ -29,6 +29,24 @@ pub(crate) mod hashing_impl {
     }
 }
 
+/// Mock version of the `scrypt` crate.
+pub(crate) mod derive_impl {
+    use scrypt;
+    pub(crate) use scrypt::ScryptParams;
+    use Error;
+
+    pub(crate) fn scrypt(
+        password: &[u8],
+        salt: &[u8],
+        _params: &ScryptParams,
+        output: &mut [u8],
+    ) -> Result<(), Error> {
+        // Use params with lowest complexity setting.
+        let params = ScryptParams::new(1, 8, 1).map_err(|_| Error::DeriveKey)?;
+        scrypt::scrypt(password, salt, &params, output).map_err(|_| Error::DeriveKey)
+    }
+}
+
 /// Mock version of a subset of the `rust_sodium` crate.
 pub(crate) mod crypto_impl {
     use rand::{Rng, SeedableRng, XorShiftRng};
