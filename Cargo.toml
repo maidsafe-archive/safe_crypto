@@ -9,15 +9,16 @@ repository = "https://github.com/maidsafe/safe_crypto"
 version = "0.4.0"
 
 [dependencies]
+lazy_static = { version = "~1.0.1", optional = true }
 maidsafe_utilities = "~0.16.0"
 quick-error = "~1.2.2"
+rand = { version = "~0.4.2", optional = true }
 rust_sodium = "~0.10.0"
+scrypt = { version = "~0.1.2", default-features = false }
 serde = { version = "~1.0.66", features = ["rc"] }
 serde_derive = "~1.0.66"
-unwrap = "~1.2.0"
-lazy_static = { version = "~1.0.1", optional = true }
-rand = { version = "~0.4.2", optional = true }
 tiny-keccak = "~1.4.2"
+unwrap = "~1.2.0"
 
 [dev-dependencies]
 rand = "~0.4.2"
