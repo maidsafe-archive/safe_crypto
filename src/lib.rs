@@ -67,6 +67,10 @@ extern crate maidsafe_utilities;
 extern crate rand;
 #[cfg(not(feature = "mock"))]
 extern crate rust_sodium as crypto_impl;
+#[cfg(feature = "mock")]
+extern crate scrypt;
+#[cfg(not(feature = "mock"))]
+extern crate scrypt as derive_impl;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -85,11 +89,14 @@ mod seeded_rng;
 #[cfg(feature = "mock")]
 use mock_crypto::crypto_impl;
 #[cfg(feature = "mock")]
+use mock_crypto::derive_impl;
+#[cfg(feature = "mock")]
 use mock_crypto::hashing_impl;
 #[cfg(feature = "mock")]
 pub use seeded_rng::SeededRng;
 
 use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
+use derive_impl::ScryptParams;
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 #[cfg(feature = "mock")]
 use rand::Rng;
@@ -161,6 +168,38 @@ pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
 /// Produces a 256-bit crypto hash out of the provided `data`.
 pub fn hash(data: &[u8]) -> [u8; HASH_BYTES] {
     hashing_impl::sha3_256(data)
+}
+
+/// Uses password-based key derivation to securely derive a byte vector from a `password` and
+/// `salt`. `output` may be used to construct any of the keys in this library.
+///
+/// `output` must satisfy the following condition: `output.len() > 0 && output.len() <= (2^32 - 1) *
+/// 32`.
+///
+/// # Example
+///
+/// ```
+/// use safe_crypto::*;
+///
+/// let password = b"password!";
+/// let salt = b"salt!";
+/// let mut output = [0; SYMMETRIC_KEY_BYTES];
+///
+/// derive_key_from_password(password, salt, &mut output).unwrap();
+/// let key1 = SymmetricKey::from_bytes(output);
+/// derive_key_from_password(password, salt, &mut output).unwrap();
+/// let key2 = SymmetricKey::from_bytes(output);
+///
+/// assert_eq!(key1, key2);
+/// ```
+pub fn derive_key_from_password(
+    password: &[u8],
+    salt: &[u8],
+    output: &mut [u8],
+) -> Result<(), Error> {
+    // Recommended parameters sufficient for most use-cases.
+    let params = ScryptParams::new(15, 8, 1).map_err(|_| Error::DeriveKey)?;
+    derive_impl::scrypt(password, salt, &params, output).map_err(|_| Error::DeriveKey)
 }
 
 /// The public key used encrypt data that can only be decrypted by the corresponding secret key,
@@ -795,6 +834,7 @@ mod tests {
         assert!(pk2.verify_detached(&sig2, &data2));
     }
 
+    // Test encryption and decryption using a symmetric key.
     #[test]
     fn symmetric() {
         let data = generate_random_bytes(50);
