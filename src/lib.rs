@@ -100,6 +100,7 @@ use derive_impl::ScryptParams;
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 #[cfg(feature = "mock")]
 use rand::Rng;
+use derive_impl::ScryptParams;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
