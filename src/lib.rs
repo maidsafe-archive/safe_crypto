@@ -63,7 +63,6 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate maidsafe_utilities;
-#[cfg(any(test, feature = "mock"))]
 extern crate rand;
 #[cfg(not(feature = "mock"))]
 extern crate rust_sodium as crypto_impl;
@@ -78,7 +77,6 @@ extern crate serde_derive;
 extern crate tiny_keccak as hashing_impl;
 #[macro_use]
 extern crate quick_error;
-#[cfg(any(test, feature = "mock"))]
 #[macro_use]
 extern crate unwrap;
 
@@ -98,9 +96,7 @@ pub use seeded_rng::SeededRng;
 use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
 use derive_impl::ScryptParams;
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
-#[cfg(feature = "mock")]
-use rand::Rng;
-use derive_impl::ScryptParams;
+use rand::{OsRng, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
@@ -222,6 +218,16 @@ pub struct Seed {
 }
 
 impl Seed {
+    /// Generates a new seed.
+    pub fn new() -> Self {
+        let mut seed_bytes = [0; SEED_BYTES];
+        seed_bytes.copy_from_slice(&generate_random_bytes(SEED_BYTES));
+
+        Self {
+            seed: sign::Seed(seed_bytes),
+        }
+    }
+
     /// Create a seed from bytes.
     pub fn from_bytes(seed: [u8; SEED_BYTES]) -> Self {
         Self {
@@ -232,6 +238,12 @@ impl Seed {
     /// Convert the `Seed` into the raw underlying bytes.
     pub fn into_bytes(self) -> [u8; SEED_BYTES] {
         self.seed.0
+    }
+}
+
+impl Default for Seed {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -760,6 +772,16 @@ impl fmt::Display for Signature {
     }
 }
 
+/// Generate a random byte vector with given `length`.
+pub(crate) fn generate_random_bytes(length: usize) -> Vec<u8> {
+    let mut os_rng = unwrap!(OsRng::new());
+    os_rng
+        .gen_iter::<u8>()
+        .filter(|b| *b != 0)
+        .take(length)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use self::rand::{OsRng, Rng};
@@ -855,6 +877,7 @@ mod tests {
         }
     }
 
+    // Test for correct behavior of signing keys.
     #[test]
     fn signing() {
         let data1 = generate_random_bytes(50);
@@ -877,15 +900,15 @@ mod tests {
         assert!(pk2.verify_detached(&sig2, &data2));
     }
 
-    // Test encryption and decryption using a symmetric key.
+    // Test generating signing keys from seeds.
     #[test]
     fn signing_seed() {
         let data1 = generate_random_bytes(50);
         let data2 = generate_random_bytes(50);
 
-        let mut seed_bytes = [0; SEED_BYTES];
-        seed_bytes.copy_from_slice(&generate_random_bytes(SEED_BYTES));
-        let seed = Seed::from_bytes(seed_bytes);
+        // Try generating two signing keypairs from the same seed.
+
+        let seed = Seed::new();
 
         let (pk1, sk1) = gen_sign_keypair_from_seed(&seed);
         let (pk2, sk2) = gen_sign_keypair_from_seed(&seed);
@@ -899,13 +922,28 @@ mod tests {
         assert!(pk1.verify_detached(&sig1, &data1));
         assert!(pk2.verify_detached(&sig2, &data2));
 
-        let mut seed_bytes = [0; SEED_BYTES];
-        seed_bytes.copy_from_slice(&generate_random_bytes(SEED_BYTES));
-        let seed2 = Seed::from_bytes(seed_bytes);
+        // Now try with a different seed.
+
+        let seed2 = Seed::new();
 
         assert_ne!(seed, seed2);
+
+        let (pk3, sk3) = gen_sign_keypair_from_seed(&seed2);
+
+        let sig3 = sk3.sign_detached(&data2);
+
+        assert!(pk1.verify_detached(&sig1, &data1));
+        assert!(!pk1.verify_detached(&sig1, &data2));
+        assert!(!pk1.verify_detached(&sig3, &data1));
+        assert!(!pk1.verify_detached(&sig3, &data2));
+
+        assert!(!pk3.verify_detached(&sig1, &data1));
+        assert!(!pk3.verify_detached(&sig1, &data2));
+        assert!(!pk3.verify_detached(&sig3, &data1));
+        assert!(pk3.verify_detached(&sig3, &data2));
     }
 
+    // Test encryption and decryption using a symmetric key.
     #[test]
     fn symmetric() {
         let data = generate_random_bytes(50);
@@ -957,14 +995,5 @@ mod tests {
 
         data.push(1);
         assert_ne!(h1, hash(&data));
-    }
-
-    fn generate_random_bytes(length: usize) -> Vec<u8> {
-        let mut os_rng = unwrap!(OsRng::new());
-        os_rng
-            .gen_iter::<u8>()
-            .filter(|b| *b != 0)
-            .take(length)
-            .collect()
     }
 }
