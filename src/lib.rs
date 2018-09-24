@@ -173,6 +173,9 @@ pub fn hash(data: &[u8]) -> [u8; HASH_BYTES] {
 /// Uses password-based key derivation to securely derive a byte vector from a `password` and
 /// `salt`. `output` may be used to construct any of the keys in this library.
 ///
+/// The optional `work_factor` affects the security of the operation as well as the CPU and memory
+/// required. It must be less than 64. Passing in `None` uses the default of 19.
+///
 /// `output` must satisfy the following condition: `output.len() > 0 && output.len() <= (2^32 - 1) *
 /// 32`.
 ///
@@ -185,20 +188,27 @@ pub fn hash(data: &[u8]) -> [u8; HASH_BYTES] {
 /// let salt = b"salt!";
 /// let mut output = [0; SYMMETRIC_KEY_BYTES];
 ///
-/// derive_key_from_password(password, salt, &mut output).unwrap();
+/// derive_key_from_pw(password, salt, None, &mut output).unwrap();
 /// let key1 = SymmetricKey::from_bytes(output);
-/// derive_key_from_password(password, salt, &mut output).unwrap();
+/// derive_key_from_pw(password, salt, None, &mut output).unwrap();
 /// let key2 = SymmetricKey::from_bytes(output);
 ///
 /// assert_eq!(key1, key2);
 /// ```
-pub fn derive_key_from_password(
+pub fn derive_key_from_pw(
     password: &[u8],
     salt: &[u8],
+    work_factor: Option<u8>,
     output: &mut [u8],
 ) -> Result<(), Error> {
-    // Recommended parameters sufficient for most use-cases.
-    let params = ScryptParams::new(15, 8, 1).map_err(|_| Error::DeriveKey)?;
+    // r=8 and p=1 are the recommended parameters sufficient for most use-cases.
+    //
+    // log_n=19 is higher (and more secure) than the recommendation of 15. We used the
+    // `determine_work_factor` example in this crate to find the first factor that resulted in an
+    // average derivation time of less than 2 seconds (on a 2.8 GHz Intel Core i7 machine) which we
+    // believe is secure enough without interfering with user experience.
+    let params =
+        ScryptParams::new(work_factor.unwrap_or(19), 8, 1).map_err(|_| Error::DeriveKey)?;
     derive_impl::scrypt(password, salt, &params, output).map_err(|_| Error::DeriveKey)
 }
 
