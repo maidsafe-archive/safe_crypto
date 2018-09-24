@@ -26,6 +26,7 @@ script:
     cargo test --verbose --release --features mock -- --ignored print_seed_only_once_for_multiple_failures &&
     cargo fmt -- --check &&
     cargo clippy --verbose --all-targets &&
-    cargo clippy --verbose --all-targets --features mock
+    cargo clippy --verbose --all-targets --features mock &&
+    cargo clippy --examples
 before_cache:
  - cargo prune
