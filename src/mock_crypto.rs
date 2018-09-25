@@ -29,6 +29,24 @@ pub(crate) mod hashing_impl {
     }
 }
 
+/// Mock version of the `scrypt` crate.
+pub(crate) mod derive_impl {
+    use scrypt;
+    pub(crate) use scrypt::ScryptParams;
+    use Error;
+
+    pub(crate) fn scrypt(
+        password: &[u8],
+        salt: &[u8],
+        _params: &ScryptParams,
+        output: &mut [u8],
+    ) -> Result<(), Error> {
+        // Use params with lowest complexity setting.
+        let params = ScryptParams::new(1, 8, 1).map_err(|_| Error::DeriveKey)?;
+        scrypt::scrypt(password, salt, &params, output).map_err(|_| Error::DeriveKey)
+    }
+}
+
 /// Mock version of a subset of the `rust_sodium` crate.
 pub(crate) mod crypto_impl {
     use rand::{Rng, SeedableRng, XorShiftRng};
@@ -70,6 +88,8 @@ pub(crate) mod crypto_impl {
             pub(crate) const SECRETKEYBYTES: usize = 64;
             /// Number of bytes in a `Signature`.
             pub(crate) const SIGNATUREBYTES: usize = 64;
+            /// Number of bytes in a `Seed`.
+            pub(crate) const SEEDBYTES: usize = 32;
 
             /// Mock signing public key.
             #[derive(
@@ -234,11 +254,41 @@ pub(crate) mod crypto_impl {
                 })
             }
 
-            /// Sign a message using the mock secret key.
+            /// Mock seed.
+            #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+            pub(crate) struct Seed(pub(crate) [u8; SEEDBYTES]);
+
+            /// Generate mock public and corresponding secret key using a seed.
+            pub(crate) fn keypair_from_seed(seed: &Seed) -> (PublicKey, SecretKey) {
+                let pub_key = seed.0;
+                let mut sec_key = [0u8; 64];
+                sec_key[0..32].clone_from_slice(&seed.0); // simply get 64 byte array
+                (PublicKey(pub_key), SecretKey(sec_key))
+            }
+
+            /// Sign a message using the mock secret key and return the signed message.
+            pub(crate) fn sign(m: &[u8], sk: &SecretKey) -> Vec<u8> {
+                let mut sm = sk.0[0..32].to_vec();
+                sm.extend_from_slice(m);
+                sm
+            }
+
+            /// Sign a message using the mock secret key and return the signature.
             pub(crate) fn sign_detached(m: &[u8], sk: &SecretKey) -> Signature {
                 let mut temp = m.to_vec();
                 temp.extend_from_slice(&sk.0);
                 Signature(hash512(&temp))
+            }
+
+            /// Verifies the signature in the signed message and returns the original message.
+            pub(crate) fn verify(sm: &[u8], pk: &PublicKey) -> Result<Vec<u8>, ()> {
+                let m = &sm[32..];
+                let sk = &sm[0..32];
+                if sk == pk.0 {
+                    Ok(m.to_vec())
+                } else {
+                    Err(())
+                }
             }
 
             /// Verify the mock signature against the message and the signer's mock public key.
@@ -311,8 +361,7 @@ pub(crate) mod crypto_impl {
                 PrecomputedKey(shared_secret)
             }
 
-            /// Perform mock encryption of the given message using the shared key
-            /// and nonce.
+            /// Perform mock encryption of the given message using the shared key and nonce.
             pub(crate) fn seal_precomputed(
                 m: &[u8],
                 nonce: &Nonce,
@@ -391,7 +440,7 @@ pub(crate) mod crypto_impl {
             pub(crate) struct Key(pub(crate) [u8; KEYBYTES]);
 
             /// Mock nonce for symmetric encryption/decryption.
-            #[derive(Serialize, Deserialize)]
+            #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
             pub(crate) struct Nonce(pub(crate) [u8; NONCEBYTES]);
 
             /// Generate mock public and corresponding secret key.
@@ -467,15 +516,35 @@ fn hash512(data: &[u8]) -> [u8; 64] {
 
 #[cfg(test)]
 mod tests {
-    use super::crypto_impl::crypto::{box_, sign};
+    use super::crypto_impl::crypto::{
+        box_,
+        sign::{self, Seed, SEEDBYTES},
+    };
     use rand::{self, Rng};
 
     #[test]
     fn keypair_generation() {
+        // Sign keypairs.
+
         let (sign_pk0, sign_sk0) = sign::gen_keypair();
         let (sign_pk1, sign_sk1) = sign::gen_keypair();
         assert_ne!(sign_pk0, sign_pk1);
         assert_ne!(sign_sk0, sign_sk1);
+
+        // Sign keypairs from a seed.
+
+        let seed0 = Seed([0; SEEDBYTES]);
+        let (sign_pk0, sign_sk0) = sign::keypair_from_seed(&seed0);
+        let (sign_pk1, sign_sk1) = sign::keypair_from_seed(&seed0);
+        assert_eq!(sign_pk0, sign_pk1);
+        assert_eq!(sign_sk0, sign_sk1);
+
+        let seed1 = Seed([1; SEEDBYTES]);
+        let (sign_pk2, sign_sk2) = sign::keypair_from_seed(&seed1);
+        assert_ne!(sign_pk0, sign_pk2);
+        assert_ne!(sign_sk0, sign_sk2);
+
+        // Encrypt keypairs.
 
         let (box_pk0, box_sk0) = box_::gen_keypair();
         let (box_pk1, box_sk1) = box_::gen_keypair();
@@ -486,12 +555,21 @@ mod tests {
     #[test]
     fn sign_and_verify() {
         let (pk0, sk0) = sign::gen_keypair();
+        let (pk1, _) = sign::gen_keypair();
         let message: Vec<_> = rand::thread_rng().gen_iter().take(10).collect();
+
+        // Non-detached signing.
+
+        let sm = sign::sign(&message, &sk0);
+        assert_eq!(unwrap!(sign::verify(&sm, &pk0)), message);
+
+        assert_eq!(sign::verify(&sm, &pk1), Err(()));
+
+        // Detached signing.
 
         let signature = sign::sign_detached(&message, &sk0);
         assert!(sign::verify_detached(&signature, &message, &pk0));
 
-        let (pk1, _) = sign::gen_keypair();
         assert!(!sign::verify_detached(&signature, &message, &pk1));
     }
 }

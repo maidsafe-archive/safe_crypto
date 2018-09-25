@@ -63,10 +63,13 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate maidsafe_utilities;
-#[cfg(any(test, feature = "mock"))]
 extern crate rand;
 #[cfg(not(feature = "mock"))]
 extern crate rust_sodium as crypto_impl;
+#[cfg(feature = "mock")]
+extern crate scrypt;
+#[cfg(not(feature = "mock"))]
+extern crate scrypt as derive_impl;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -74,7 +77,6 @@ extern crate serde_derive;
 extern crate tiny_keccak as hashing_impl;
 #[macro_use]
 extern crate quick_error;
-#[cfg(any(test, feature = "mock"))]
 #[macro_use]
 extern crate unwrap;
 
@@ -85,14 +87,16 @@ mod seeded_rng;
 #[cfg(feature = "mock")]
 use mock_crypto::crypto_impl;
 #[cfg(feature = "mock")]
+use mock_crypto::derive_impl;
+#[cfg(feature = "mock")]
 use mock_crypto::hashing_impl;
 #[cfg(feature = "mock")]
 pub use seeded_rng::SeededRng;
 
 use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
+use derive_impl::ScryptParams;
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
-#[cfg(feature = "mock")]
-use rand::Rng;
+use rand::{OsRng, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt;
 use std::sync::Arc;
@@ -111,6 +115,12 @@ pub const SHARED_SECRET_KEY_BYTES: usize = box_::PRECOMPUTEDKEYBYTES;
 pub const SIGNATURE_BYTES: usize = sign::SIGNATUREBYTES;
 /// Symmetric key length in bytes.
 pub const SYMMETRIC_KEY_BYTES: usize = secretbox::KEYBYTES;
+/// Nonce length in bytes.
+pub const NONCE_BYTES: usize = secretbox::NONCEBYTES;
+/// Hash length in bytes.
+pub const HASH_BYTES: usize = 32;
+/// Seed length in bytes.
+pub const SEED_BYTES: usize = sign::SEEDBYTES;
 
 quick_error! {
     /// This error is returned if encryption or decryption fails.
@@ -155,8 +165,86 @@ pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
 }
 
 /// Produces a 256-bit crypto hash out of the provided `data`.
-pub fn hash(data: &[u8]) -> [u8; 32] {
+pub fn hash(data: &[u8]) -> [u8; HASH_BYTES] {
     hashing_impl::sha3_256(data)
+}
+
+/// Uses password-based key derivation to securely derive a byte vector from a `password` and
+/// `salt`. `output` may be used to construct any of the keys in this library.
+///
+/// The optional `work_factor` affects the security of the operation as well as the CPU and memory
+/// required. It must be less than 64. Passing in `None` uses the default of 19.
+///
+/// `output` must satisfy the following condition: `output.len() > 0 && output.len() <= (2^32 - 1) *
+/// 32`.
+///
+/// # Example
+///
+/// ```
+/// use safe_crypto::*;
+///
+/// let password = b"password!";
+/// let salt = b"salt!";
+/// let mut output = [0; SYMMETRIC_KEY_BYTES];
+///
+/// derive_key_from_pw(password, salt, None, &mut output).unwrap();
+/// let key1 = SymmetricKey::from_bytes(output);
+/// derive_key_from_pw(password, salt, None, &mut output).unwrap();
+/// let key2 = SymmetricKey::from_bytes(output);
+///
+/// assert_eq!(key1, key2);
+/// ```
+pub fn derive_key_from_pw(
+    password: &[u8],
+    salt: &[u8],
+    work_factor: Option<u8>,
+    output: &mut [u8],
+) -> Result<(), Error> {
+    // r=8 and p=1 are the recommended parameters sufficient for most use-cases.
+    //
+    // log_n=19 is higher (and more secure) than the recommendation of 15. We used the
+    // `determine_work_factor` example in this crate to find the first factor that resulted in an
+    // average derivation time of less than 2 seconds (on a 2.8 GHz Intel Core i7 machine) which we
+    // believe is secure enough without interfering with user experience.
+    let params =
+        ScryptParams::new(work_factor.unwrap_or(19), 8, 1).map_err(|_| Error::DeriveKey)?;
+    derive_impl::scrypt(password, salt, &params, output).map_err(|_| Error::DeriveKey)
+}
+
+/// Seed structure used to generate sign and encrypt keypairs deterministically.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct Seed {
+    seed: sign::Seed,
+}
+
+impl Seed {
+    /// Generates a new seed.
+    pub fn new() -> Self {
+        let mut seed_bytes = [0; SEED_BYTES];
+        seed_bytes.copy_from_slice(&generate_random_bytes(SEED_BYTES));
+
+        Self {
+            seed: sign::Seed(seed_bytes),
+        }
+    }
+
+    /// Create a seed from bytes.
+    pub fn from_bytes(seed: [u8; SEED_BYTES]) -> Self {
+        Self {
+            seed: sign::Seed(seed),
+        }
+    }
+
+    /// Convert the `Seed` into the raw underlying bytes.
+    pub fn into_bytes(self) -> [u8; SEED_BYTES] {
+        self.seed.0
+    }
+}
+
+impl Default for Seed {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// The public key used encrypt data that can only be decrypted by the corresponding secret key,
@@ -306,6 +394,13 @@ pub struct PublicSignKey {
 }
 
 impl PublicSignKey {
+    /// Verifies the signature in the signed message.
+    ///
+    /// Returns the original message or an error if the signature fails validation.
+    pub fn verify(&self, signed: &[u8]) -> Result<Vec<u8>, Error> {
+        Ok(sign::verify(signed, &self.sign)?)
+    }
+
     /// Verifies the detached `signature`.
     ///
     /// Returns `true` if the signature is valid the `data` is verified.
@@ -354,6 +449,13 @@ impl SecretSignKey {
         self.inner.sign.0
     }
 
+    /// Produces a signed message from `data`.
+    ///
+    /// Afterwards the signed message can be verified using the corresponding `PublicSignKey`.
+    pub fn sign(&self, data: &[u8]) -> Vec<u8> {
+        sign::sign(data, &self.inner.sign)
+    }
+
     /// Produces the detached signature from the `data`.
     ///
     /// Afterwards the returned `Signature` can be used to verify the authenticity of `data`.
@@ -367,6 +469,16 @@ impl SecretSignKey {
 /// Construct random public and secret signing key pair.
 pub fn gen_sign_keypair() -> (PublicSignKey, SecretSignKey) {
     let (sign_pk, sign_sk) = sign::gen_keypair();
+    let pub_sign_key = PublicSignKey { sign: sign_pk };
+    let sec_sign_key = SecretSignKey {
+        inner: Arc::new(SecretSignKeyInner { sign: sign_sk }),
+    };
+    (pub_sign_key, sec_sign_key)
+}
+
+/// Construct random public and secret signing key pair from a seed.
+pub fn gen_sign_keypair_from_seed(seed: &Seed) -> (PublicSignKey, SecretSignKey) {
+    let (sign_pk, sign_sk) = sign::keypair_from_seed(&seed.seed);
     let pub_sign_key = PublicSignKey { sign: sign_pk };
     let sec_sign_key = SecretSignKey {
         inner: Arc::new(SecretSignKeyInner { sign: sign_sk }),
@@ -393,7 +505,7 @@ impl SharedSecretKey {
     }
 
     /// Convert the `SharedSecretKey` into the raw underlying bytes.
-    /// For anyone who wants to store the shared secret key
+    /// For anyone who wants to store the shared secret key.
     pub fn into_bytes(self) -> [u8; SHARED_SECRET_KEY_BYTES] {
         self.precomputed.0
     }
@@ -526,6 +638,33 @@ impl SymmetricKey {
         self.encrypt_bytes(&serialise(plaintext)?)
     }
 
+    /// Encrypts serialisable `plaintext` using authenticated symmetric encryption, with a nonce.
+    ///
+    /// See `encrypt`.
+    pub fn encrypt_with_nonce<T: Serialize>(
+        &self,
+        plaintext: &T,
+        nonce: &Nonce,
+    ) -> Result<Vec<u8>, Error> {
+        self.encrypt_bytes_with_nonce(&serialise(plaintext)?, nonce)
+    }
+
+    /// Encrypts bytestring `plaintext` using authenticated symmetric encryption, with a nonce.
+    ///
+    /// See `encrypt_bytes`.
+    pub fn encrypt_bytes_with_nonce(
+        &self,
+        plaintext: &[u8],
+        nonce: &Nonce,
+    ) -> Result<Vec<u8>, Error> {
+        let nonce = &nonce.nonce;
+        let ciphertext = secretbox::seal(plaintext, &nonce, &self.encrypt);
+        Ok(serialise(&CipherText {
+            nonce: nonce.0,
+            ciphertext,
+        })?)
+    }
+
     /// Encrypts bytestring `plaintext` using authenticated symmetric encryption.
     ///
     /// With authenticated encryption the recipient will be able to confirm that the message
@@ -535,11 +674,7 @@ impl SymmetricKey {
     /// Can return an `Error` in case of a serialisation error.
     pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
         let nonce = secretbox::gen_nonce();
-        let ciphertext = secretbox::seal(plaintext, &nonce, &self.encrypt);
-        Ok(serialise(&CipherText {
-            nonce: nonce.0,
-            ciphertext,
-        })?)
+        self.encrypt_bytes_with_nonce(plaintext, &Nonce { nonce })
     }
 
     /// Decrypts serialised `ciphertext` encrypted using authenticated symmetric encryption.
@@ -581,9 +716,43 @@ impl Default for SymmetricKey {
     }
 }
 
+/// Nonce structure used for authenticated symmetric encryption.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct Nonce {
+    nonce: secretbox::Nonce,
+}
+
+impl Nonce {
+    /// Generates a new nonce.
+    pub fn new() -> Self {
+        Self {
+            nonce: secretbox::gen_nonce(),
+        }
+    }
+
+    /// Create a nonce from bytes. Useful when it has been serialised.
+    pub fn from_bytes(nonce: [u8; NONCE_BYTES]) -> Self {
+        Self {
+            nonce: secretbox::Nonce(nonce),
+        }
+    }
+
+    /// Convert the `Nonce` into the raw underlying bytes.
+    /// For anyone who wants to store the nonce.
+    pub fn into_bytes(self) -> [u8; NONCE_BYTES] {
+        self.nonce.0
+    }
+}
+
+impl Default for Nonce {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct CipherText {
-    nonce: [u8; box_::NONCEBYTES],
+    nonce: [u8; NONCE_BYTES],
     ciphertext: Vec<u8>,
 }
 
@@ -615,6 +784,16 @@ impl fmt::Display for Signature {
             &self.signature.0[0], &self.signature.0[1], &self.signature.0[2]
         )
     }
+}
+
+/// Generate a random byte vector with given `length`.
+pub(crate) fn generate_random_bytes(length: usize) -> Vec<u8> {
+    let mut os_rng = unwrap!(OsRng::new());
+    os_rng
+        .gen_iter::<u8>()
+        .filter(|b| *b != 0)
+        .take(length)
+        .collect()
 }
 
 #[cfg(test)]
@@ -712,6 +891,7 @@ mod tests {
         }
     }
 
+    // Test for correct behavior of signing keys.
     #[test]
     fn signing() {
         let data1 = generate_random_bytes(50);
@@ -719,6 +899,25 @@ mod tests {
 
         let (pk1, sk1) = gen_sign_keypair();
         let (pk2, sk2) = gen_sign_keypair();
+
+        // Test non-detached signing.
+
+        let sm1 = sk1.sign(&data1);
+        let sm2 = sk2.sign(&data2);
+
+        assert_eq!(unwrap!(pk1.verify(&sm1)), data1);
+        match pk1.verify(&sm2) {
+            Err(Error::DecryptVerify(())) => (),
+            _ => panic!(),
+        }
+
+        match pk2.verify(&sm1) {
+            Err(Error::DecryptVerify(())) => (),
+            _ => panic!(),
+        }
+        assert_eq!(unwrap!(pk2.verify(&sm2)), data2);
+
+        // Test detached signing.
 
         let sig1 = sk1.sign_detached(&data1);
         let sig2 = sk2.sign_detached(&data2);
@@ -734,34 +933,87 @@ mod tests {
         assert!(pk2.verify_detached(&sig2, &data2));
     }
 
+    // Test generating signing keys from seeds.
+    #[test]
+    fn signing_seed() {
+        let data1 = generate_random_bytes(50);
+        let data2 = generate_random_bytes(50);
+
+        // Try generating two signing keypairs from the same seed.
+
+        let seed = Seed::new();
+
+        let (pk1, sk1) = gen_sign_keypair_from_seed(&seed);
+        let (pk2, sk2) = gen_sign_keypair_from_seed(&seed);
+
+        assert_eq!(pk1, pk2);
+        assert_eq!(sk1, sk2);
+
+        let sig1 = sk1.sign_detached(&data1);
+        let sig2 = sk2.sign_detached(&data2);
+
+        assert!(pk1.verify_detached(&sig1, &data1));
+        assert!(pk2.verify_detached(&sig2, &data2));
+
+        // Now try with a different seed.
+
+        let seed2 = Seed::new();
+
+        assert_ne!(seed, seed2);
+
+        let (pk3, sk3) = gen_sign_keypair_from_seed(&seed2);
+
+        let sig3 = sk3.sign_detached(&data2);
+
+        assert!(pk1.verify_detached(&sig1, &data1));
+        assert!(!pk1.verify_detached(&sig1, &data2));
+        assert!(!pk1.verify_detached(&sig3, &data1));
+        assert!(!pk1.verify_detached(&sig3, &data2));
+
+        assert!(!pk3.verify_detached(&sig1, &data1));
+        assert!(!pk3.verify_detached(&sig1, &data2));
+        assert!(!pk3.verify_detached(&sig3, &data1));
+        assert!(pk3.verify_detached(&sig3, &data2));
+    }
+
+    // Test encryption and decryption using a symmetric key.
     #[test]
     fn symmetric() {
         let data = generate_random_bytes(50);
+        let nonce = Nonce::new();
 
-        let sk1 = SymmetricKey::new();
-        let sk2 = SymmetricKey::new();
+        let (sk1, sk2) = (SymmetricKey::new(), SymmetricKey::new());
 
-        let ciphertext = unwrap!(sk1.encrypt_bytes(&data), "could not encrypt data");
-        let plaintext = unwrap!(sk1.decrypt_bytes(&ciphertext), "could not decrypt data");
-
-        assert_eq!(plaintext, data);
-
-        // Try to decrypt the ciphertext with an incorrect key
-        match sk2.decrypt_bytes(&ciphertext) {
-            Err(_) => (),
-            Ok(_) => panic!(
-                "Unexpected result: we're using a wrong key, it should have returned an error"
+        let ciphertexts = vec![
+            unwrap!(sk1.encrypt_bytes(&data), "could not encrypt data"),
+            unwrap!(
+                sk1.encrypt_bytes_with_nonce(&data, &nonce),
+                "could not encrypt data using a nonce"
             ),
+        ];
+
+        for ciphertext in ciphertexts {
+            let plaintext = unwrap!(sk1.decrypt_bytes(&ciphertext), "could not decrypt data");
+
+            assert_eq!(plaintext, data);
+
+            // Try to decrypt the ciphertext with an incorrect key
+            match sk2.decrypt_bytes(&ciphertext) {
+                Err(_) => (),
+                Ok(_) => panic!(
+                    "Unexpected result: we're using a wrong key, it should have returned an error"
+                ),
+            }
+
+            // Try to use automatic serialisation/deserialisation
+            let mut os_rng = unwrap!(OsRng::new());
+            let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
+
+            let ciphertext = unwrap!(sk2.encrypt(&data), "could not encrypt data");
+            let plaintext: Vec<u64> = unwrap!(sk2.decrypt(&ciphertext), "could not decrypt data");
+
+            assert_eq!(plaintext, data);
         }
-
-        // Try to use automatic serialisation/deserialisation
-        let mut os_rng = unwrap!(OsRng::new());
-        let data: Vec<u64> = os_rng.gen_iter().take(32).collect();
-
-        let ciphertext = unwrap!(sk2.encrypt(&data), "could not encrypt data");
-        let plaintext: Vec<u64> = unwrap!(sk2.decrypt(&ciphertext), "could not decrypt data");
-
-        assert_eq!(plaintext, data);
     }
 
     #[test]
@@ -776,15 +1028,5 @@ mod tests {
 
         data.push(1);
         assert_ne!(h1, hash(&data));
-    }
-
-    fn generate_random_bytes(length: usize) -> Vec<u8> {
-        let mut os_rng = unwrap!(OsRng::new());
-        os_rng
-            .gen_iter::<char>()
-            .filter(|c| *c != '\u{0}')
-            .take(length)
-            .collect::<String>()
-            .into_bytes()
     }
 }
