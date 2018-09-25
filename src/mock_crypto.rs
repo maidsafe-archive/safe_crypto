@@ -266,11 +266,29 @@ pub(crate) mod crypto_impl {
                 (PublicKey(pub_key), SecretKey(sec_key))
             }
 
-            /// Sign a message using the mock secret key.
+            /// Sign a message using the mock secret key and return the signed message.
+            pub(crate) fn sign(m: &[u8], sk: &SecretKey) -> Vec<u8> {
+                let mut sm = sk.0[0..32].to_vec();
+                sm.extend_from_slice(m);
+                sm
+            }
+
+            /// Sign a message using the mock secret key and return the signature.
             pub(crate) fn sign_detached(m: &[u8], sk: &SecretKey) -> Signature {
                 let mut temp = m.to_vec();
                 temp.extend_from_slice(&sk.0);
                 Signature(hash512(&temp))
+            }
+
+            /// Verifies the signature in the signed message and returns the original message.
+            pub(crate) fn verify(sm: &[u8], pk: &PublicKey) -> Result<Vec<u8>, ()> {
+                let m = &sm[32..];
+                let sk = &sm[0..32];
+                if sk == pk.0 {
+                    Ok(m.to_vec())
+                } else {
+                    Err(())
+                }
             }
 
             /// Verify the mock signature against the message and the signer's mock public key.
@@ -537,12 +555,21 @@ mod tests {
     #[test]
     fn sign_and_verify() {
         let (pk0, sk0) = sign::gen_keypair();
+        let (pk1, _) = sign::gen_keypair();
         let message: Vec<_> = rand::thread_rng().gen_iter().take(10).collect();
+
+        // Non-detached signing.
+
+        let sm = sign::sign(&message, &sk0);
+        assert_eq!(unwrap!(sign::verify(&sm, &pk0)), message);
+
+        assert_eq!(sign::verify(&sm, &pk1), Err(()));
+
+        // Detached signing.
 
         let signature = sign::sign_detached(&message, &sk0);
         assert!(sign::verify_detached(&signature, &message, &pk0));
 
-        let (pk1, _) = sign::gen_keypair();
         assert!(!sign::verify_detached(&signature, &message, &pk1));
     }
 }

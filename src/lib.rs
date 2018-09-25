@@ -394,6 +394,13 @@ pub struct PublicSignKey {
 }
 
 impl PublicSignKey {
+    /// Verifies the signature in the signed message.
+    ///
+    /// Returns the original message or an error if the signature fails validation.
+    pub fn verify(&self, signed: &[u8]) -> Result<Vec<u8>, Error> {
+        Ok(sign::verify(signed, &self.sign)?)
+    }
+
     /// Verifies the detached `signature`.
     ///
     /// Returns `true` if the signature is valid the `data` is verified.
@@ -440,6 +447,13 @@ impl SecretSignKey {
     /// Get the inner secret key representation.
     pub fn into_bytes(self) -> [u8; SECRET_SIGN_KEY_BYTES] {
         self.inner.sign.0
+    }
+
+    /// Produces a signed message from `data`.
+    ///
+    /// Afterwards the signed message can be verified using the corresponding `PublicSignKey`.
+    pub fn sign(&self, data: &[u8]) -> Vec<u8> {
+        sign::sign(data, &self.inner.sign)
     }
 
     /// Produces the detached signature from the `data`.
@@ -885,6 +899,25 @@ mod tests {
 
         let (pk1, sk1) = gen_sign_keypair();
         let (pk2, sk2) = gen_sign_keypair();
+
+        // Test non-detached signing.
+
+        let sm1 = sk1.sign(&data1);
+        let sm2 = sk2.sign(&data2);
+
+        assert_eq!(unwrap!(pk1.verify(&sm1)), data1);
+        match pk1.verify(&sm2) {
+            Err(Error::DecryptVerify(())) => (),
+            _ => panic!(),
+        }
+
+        match pk2.verify(&sm1) {
+            Err(Error::DecryptVerify(())) => (),
+            _ => panic!(),
+        }
+        assert_eq!(unwrap!(pk2.verify(&sm2)), data2);
+
+        // Test detached signing.
 
         let sig1 = sk1.sign_detached(&data1);
         let sig2 = sk2.sign_detached(&data2);
