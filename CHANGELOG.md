@@ -1,5 +1,12 @@
 # safe_crypto - Change Log
 
+## [0.5.0]
+- Use rust 1.29.1 stable / no nightly.
+- Add ability to generate sign keypair using a given seed.
+- Add key derivation using scrypt with an optional work factor parameter.
+- Add support for encryption using custom nonces.
+- Export the constants `NONCE_BYTES`, `SEED_BYTES`, and `HASH_BYTES`.
+
 ## [0.4.0]
 - Upgrade unwrap version to 1.2.0.
 - Expose constants of encryption and signing key sizes.
