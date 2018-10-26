@@ -159,7 +159,6 @@ pub fn init() -> Result<(), Error> {
 /// Initialise the key generation functions with a custom random number generator `rng`.
 /// Can be used for deterministic key generation in tests.
 /// Returns an error in case of an random generator initialisation error.
-#[cfg(feature = "mock")]
 pub fn init_with_rng<T: Rng>(rng: &mut T) -> Result<(), Error> {
     crypto_impl::init_with_rng(rng).map_err(Error::InitError)
 }
