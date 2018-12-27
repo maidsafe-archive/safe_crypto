@@ -60,15 +60,10 @@
 #[cfg(feature = "mock")]
 #[macro_use]
 extern crate lazy_static;
-extern crate maidsafe_utilities;
-extern crate rand;
 #[cfg(not(feature = "mock"))]
 extern crate rust_sodium as crypto_impl;
-#[cfg(feature = "mock")]
-extern crate scrypt;
 #[cfg(not(feature = "mock"))]
 extern crate scrypt as derive_impl;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[cfg(not(feature = "mock"))]
@@ -78,21 +73,23 @@ extern crate quick_error;
 #[macro_use]
 extern crate unwrap;
 
+use rand;
+
 #[cfg(feature = "mock")]
 mod mock_crypto;
 #[cfg(feature = "mock")]
 mod seeded_rng;
 #[cfg(feature = "mock")]
-use mock_crypto::crypto_impl;
+use crate::mock_crypto::crypto_impl;
 #[cfg(feature = "mock")]
-use mock_crypto::derive_impl;
+use crate::mock_crypto::derive_impl;
 #[cfg(feature = "mock")]
-use mock_crypto::hashing_impl;
+use crate::mock_crypto::hashing_impl;
 #[cfg(feature = "mock")]
-pub use seeded_rng::SeededRng;
+pub use crate::seeded_rng::SeededRng;
 
-use crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
-use derive_impl::ScryptParams;
+use crate::crypto_impl::crypto::{box_, sealedbox, secretbox, sign};
+use crate::derive_impl::ScryptParams;
 use maidsafe_utilities::serialisation::{deserialise, serialise, SerialisationError};
 use rand::{OsRng, Rng};
 use serde::{de::DeserializeOwned, Serialize};

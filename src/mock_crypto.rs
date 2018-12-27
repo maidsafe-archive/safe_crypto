@@ -31,9 +31,8 @@ pub(crate) mod hashing_impl {
 
 /// Mock version of the `scrypt` crate.
 pub(crate) mod derive_impl {
-    use scrypt;
+    use crate::Error;
     pub(crate) use scrypt::ScryptParams;
-    use Error;
 
     pub(crate) fn scrypt(
         password: &[u8],
@@ -73,7 +72,7 @@ pub(crate) mod crypto_impl {
         /// Mock signing.
         pub(crate) mod sign {
             use super::super::with_rng;
-            use mock_crypto::hash512;
+            use crate::mock_crypto::hash512;
             use rand::Rng;
             use serde::de::{SeqAccess, Visitor};
             use serde::ser::SerializeTuple;
@@ -379,7 +378,7 @@ pub(crate) mod crypto_impl {
         }
 
         pub(crate) mod sealedbox {
-            use box_::{PublicKey, SecretKey};
+            use crate::box_::{PublicKey, SecretKey};
 
             /// Perform mock anonymous encryption.
             pub(crate) fn seal(m: &[u8], pk: &PublicKey) -> Vec<u8> {

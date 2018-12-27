@@ -57,7 +57,7 @@
     variant_size_differences
 )]
 
-extern crate safe_crypto;
+use safe_crypto;
 
 use std::time::Instant;
 
