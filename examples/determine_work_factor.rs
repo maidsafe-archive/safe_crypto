@@ -13,7 +13,7 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maidsafe/QA/master/Images/maidsafe_logo.png",
     html_favicon_url = "https://maidsafe.net/img/favicon.ico",
-    test(attr(forbid(warnings))),
+    test(attr(forbid(warnings)))
 )]
 #![forbid(
     exceeding_bitshifts,
@@ -30,8 +30,6 @@
     non_shorthand_field_patterns,
     overflowing_literals,
     plugin_as_library,
-    private_no_mangle_fns,
-    private_no_mangle_statics,
     stable_features,
     unconditional_recursion,
     unknown_lints,
@@ -59,7 +57,7 @@
     variant_size_differences
 )]
 
-extern crate safe_crypto;
+use safe_crypto;
 
 use std::time::Instant;
 
@@ -67,7 +65,7 @@ fn main() -> Result<(), safe_crypto::Error> {
     const WORK_FACTOR_MAX: u8 = 22;
     const NUM_ITERATIONS: usize = 5;
 
-    for log_n in 0..WORK_FACTOR_MAX + 1 {
+    for log_n in 0..=WORK_FACTOR_MAX {
         let start = Instant::now();
 
         for _ in 0..NUM_ITERATIONS {
