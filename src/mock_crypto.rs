@@ -213,7 +213,7 @@ pub(crate) mod crypto_impl {
                                         return Err(serde::de::Error::invalid_length(
                                             $inner_size,
                                             &self,
-                                        ))
+                                        ));
                                     }
                                 };
                             }
