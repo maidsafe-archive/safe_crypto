@@ -20,7 +20,7 @@ pub(crate) mod hashing_impl {
     pub(crate) fn sha3_256(data: &[u8]) -> [u8; 32] {
         let mut hash = [0; 32];
         hash64(data)
-            .into_iter()
+            .iter()
             .cycle()
             .take(32)
             .enumerate()
