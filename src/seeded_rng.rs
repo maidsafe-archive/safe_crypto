@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::thread;
 
 lazy_static! {
@@ -111,7 +112,7 @@ impl Display for SeededRng {
         write!(
             formatter,
             "RNG seed: {:?}",
-            *SEED.lock().unwrap_or_else(|e| e.into_inner())
+            *SEED.lock().unwrap_or_else(PoisonError::into_inner)
         )
     }
 }
@@ -125,7 +126,7 @@ impl Debug for SeededRng {
 impl Drop for SeededRng {
     fn drop(&mut self) {
         if thread::panicking() && !ALREADY_PRINTED.compare_and_swap(false, true, Ordering::SeqCst) {
-            let msg = format!("{:?}", *SEED.lock().unwrap_or_else(|e| e.into_inner()));
+            let msg = format!("{:?}", *SEED.lock().unwrap_or_else(PoisonError::into_inner));
             let border = (0..msg.len()).map(|_| "=").collect::<String>();
             println!("\n{}\n{}\n{}\n", border, msg, border);
         }

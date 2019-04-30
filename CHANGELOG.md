@@ -1,5 +1,10 @@
 # safe_crypto - Change Log
 
+## [0.6.0]
+- Update to rustc 2018 edition
+- Update lazy_static
+- Update README, CI URL and misc (formatting and clippy)
+
 ## [0.5.0]
 - Use rust 1.29.1 stable / no nightly.
 - Add ability to generate sign keypair using a given seed.
