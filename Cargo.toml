@@ -11,7 +11,7 @@ edition = "2018"
 
 [dependencies]
 lazy_static = { version = "~1.2.0", optional = true }
-maidsafe_utilities = "~0.16.0"
+maidsafe_utilities = "~0.18.0"
 quick-error = "~1.2.2"
 rand = "~0.4.2"
 rust_sodium = "~0.10.2"
