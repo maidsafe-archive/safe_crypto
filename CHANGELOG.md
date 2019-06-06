@@ -1,5 +1,8 @@
 # safe_crypto - Change Log
 
+## [0.7.0]
+- Update dependency on maidsafe_utilities to 0.18.0
+
 ## [0.6.0]
 - Update to rustc 2018 edition
 - Update lazy_static
