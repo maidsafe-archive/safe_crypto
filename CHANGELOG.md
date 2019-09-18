@@ -1,5 +1,8 @@
 # safe_crypto - Change Log
 
+## [0.8.0]
+- Update dependency on tiny-keccak
+
 ## [0.7.0]
 - Update dependency on maidsafe_utilities to 0.18.0
 
