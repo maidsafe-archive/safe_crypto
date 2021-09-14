@@ -9,6 +9,8 @@
 
 //! This is a convenience library providing abstractions for cryptographic functions required by
 //! other SAFE Network libraries.
+//!
+//! **⚠ DEPRECATED:** This repository (and crate) are deprecated and no longer used in active Safe Network projects.
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maidsafe/QA/master/Images/maidsafe_logo.png",
@@ -19,8 +21,7 @@
     exceeding_bitshifts,
     mutable_transmutes,
     no_mangle_const_items,
-    unknown_crate_types,
-    warnings
+    unknown_crate_types
 )]
 #![deny(
     bad_style,

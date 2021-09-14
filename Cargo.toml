@@ -6,7 +6,7 @@ license = "MIT OR BSD-3-Clause"
 name = "safe_crypto"
 readme = "README.md"
 repository = "https://github.com/maidsafe/safe_crypto"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2018"
 
 [dependencies]
@@ -15,7 +15,7 @@ maidsafe_utilities = "~0.18.0"
 quick-error = "~1.2.2"
 rand = "~0.4.2"
 rust_sodium = "~0.10.2"
-scrypt = { version = "~0.1.2", default-features = false }
+scrypt = { version = "0.2", default-features = false }
 serde = { version = "~1.0.101", features = ["rc"] }
 serde_derive = "~1.0.101"
 tiny-keccak = "~1.5.0"
