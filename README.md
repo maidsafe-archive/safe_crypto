@@ -1,5 +1,7 @@
 # safe_crypto
 
+**⚠ DEPRECATED:** This repository (and crate) are deprecated and no longer used in active Safe Network projects.
+
 This is a convenience library providing abstractions for cryptographic functions required by other SAFE Network libraries.
 
 |Crate|Documentation|Linux/macOS|Windows|Issues|
