@@ -1,3 +1,7 @@
+skip_commits:
+  files:
+    - design/*
+
 environment:
   global:
     RUST_BACKTRACE: 1
